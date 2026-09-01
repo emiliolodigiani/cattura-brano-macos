@@ -325,6 +325,7 @@ struct ContentView: View {
         Task {
             await recorder.processExistingFile(
                 url,
+                filename: filename,
                 format: format,
                 outputFolder: folder,
                 trimSilence: trimSilence,

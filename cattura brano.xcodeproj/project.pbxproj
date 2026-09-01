@@ -261,7 +261,6 @@
 					/opt/homebrew/opt/aubio/include,
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Cattura Brano";
-				INFOPLIST_KEY_CFBundleName = "Cattura Brano";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "L'app registra l'audio dal dispositivo di ingresso selezionato per salvare i brani catturati.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -276,7 +275,7 @@
 					Accelerate,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "it.emiliolodigiani.cattura-brano";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Cattura Brano";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) LAME_ENABLED AUBIO_ENABLED";
@@ -307,7 +306,6 @@
 					/opt/homebrew/opt/aubio/include,
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Cattura Brano";
-				INFOPLIST_KEY_CFBundleName = "Cattura Brano";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "L'app registra l'audio dal dispositivo di ingresso selezionato per salvare i brani catturati.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -322,7 +320,7 @@
 					Accelerate,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "it.emiliolodigiani.cattura-brano";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Cattura Brano";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) LAME_ENABLED AUBIO_ENABLED";

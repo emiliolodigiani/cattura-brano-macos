@@ -204,8 +204,10 @@ final class AudioRecorder {
 
     /// Elabora un file audio esistente con la stessa pipeline delle
     /// registrazioni (trim, normalizzazione, BPM, click, drumless).
+    /// Il nome del file salvato è `filename`; se vuoto, quello del sorgente.
     func processExistingFile(
         _ source: URL,
+        filename: String,
         format: RecordingFormat,
         outputFolder: URL,
         trimSilence: Bool,
@@ -218,10 +220,12 @@ final class AudioRecorder {
         errorMessage = nil
         lastSavedURL = nil
         extraFiles = []
+        let typed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseName = typed.isEmpty ? source.deletingPathExtension().lastPathComponent : typed
         await exportAndPostProcess(
             source: source,
             deleteSource: false,
-            name: sanitizedFilename(source.deletingPathExtension().lastPathComponent),
+            name: sanitizedFilename(baseName),
             format: format,
             outputFolder: outputFolder,
             trimSilence: trimSilence,
