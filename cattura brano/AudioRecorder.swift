@@ -21,6 +21,10 @@ final class AudioRecorder {
     var selectedDeviceID: AudioDeviceID?
     private(set) var isRecording = false
     private(set) var isSaving = false
+    /// `true` mentre demucs/click stanno generando le tracce aggiuntive.
+    private(set) var isPostProcessing = false
+    /// Tracce aggiuntive generate dopo il salvataggio (click, drumless…).
+    private(set) var extraFiles: [URL] = []
     private(set) var elapsed: TimeInterval = 0
     /// Picchi lineari (0…1) per canale, aggiornati durante la registrazione.
     private(set) var levels: [Float] = []
@@ -113,6 +117,7 @@ final class AudioRecorder {
         guard !isRecording else { return }
         errorMessage = nil
         lastSavedURL = nil
+        extraFiles = []
 
         guard await requestMicrophoneAccess() else {
             errorMessage = "Permesso al microfono negato. Abilitalo in Impostazioni di Sistema › Privacy e sicurezza › Microfono."
@@ -162,6 +167,7 @@ final class AudioRecorder {
         trimSilence: Bool,
         appendBPM: Bool,
         addClick: Bool,
+        separateDrums: Bool,
         normalize: Bool
     ) async {
         guard isRecording else { return }
@@ -185,9 +191,12 @@ final class AudioRecorder {
         let name = sanitizedFilename(filename)
         let threshold = silenceThreshold
 
+        let wantsExtras = addClick || separateDrums
+
         isSaving = true
+        var exportResult: ExportResult?
         do {
-            let savedURL = try await Task.detached(priority: .userInitiated) {
+            let result = try await Task.detached(priority: .userInitiated) {
                 try AudioProcessor.trimAndExport(
                     source: tempURL,
                     folder: outputFolder,
@@ -195,17 +204,61 @@ final class AudioRecorder {
                     format: format,
                     silenceThreshold: trimSilence ? threshold : nil,
                     appendBPM: appendBPM,
-                    addClick: addClick,
-                    normalize: normalize
+                    normalize: normalize,
+                    prepareProcessedCopy: wantsExtras
                 )
             }.value
-            lastSavedURL = savedURL
+            lastSavedURL = result.savedURL
+            exportResult = result
         } catch {
             errorMessage = "Impossibile salvare il file: \(error.localizedDescription)"
         }
 
         try? FileManager.default.removeItem(at: tempURL)
         isSaving = false
+
+        if let exportResult, let processedCopy = exportResult.processedCopyURL {
+            await runPostProcessing(
+                processedWAV: processedCopy,
+                savedURL: exportResult.savedURL,
+                folder: outputFolder,
+                format: format,
+                addClick: addClick,
+                separateDrums: separateDrums
+            )
+        }
+    }
+
+    /// Genera le tracce aggiuntive (click/drumless) dopo il salvataggio.
+    private func runPostProcessing(
+        processedWAV: URL,
+        savedURL: URL,
+        folder: URL,
+        format: RecordingFormat,
+        addClick: Bool,
+        separateDrums: Bool
+    ) async {
+        isPostProcessing = true
+        let baseName = savedURL.deletingPathExtension().lastPathComponent
+        do {
+            let outputs = try await Task.detached(priority: .userInitiated) {
+                try AudioPostProcessor.run(
+                    processedWAV: processedWAV,
+                    folder: folder,
+                    baseName: baseName,
+                    format: format,
+                    addClick: addClick,
+                    separateDrums: separateDrums
+                )
+            }.value
+            extraFiles = outputs
+            if addClick, outputs.isEmpty {
+                errorMessage = "Nessun battito rilevabile: traccia con click non generata."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isPostProcessing = false
     }
 
     // MARK: Utilità

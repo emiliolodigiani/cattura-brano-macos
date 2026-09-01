@@ -2,8 +2,9 @@
 //  OutputFolderStore.swift
 //  cattura brano
 //
-//  Gestisce la cartella di destinazione delle registrazioni, con bookmark
-//  con ambito di sicurezza per ricordare la scelta tra un avvio e l'altro.
+//  Gestisce la cartella di destinazione delle registrazioni, ricordando la
+//  scelta tra un avvio e l'altro tramite un bookmark (l'app non è sandboxed,
+//  quindi non servono bookmark con ambito di sicurezza).
 //
 
 import AppKit
@@ -17,7 +18,6 @@ final class OutputFolderStore {
     private(set) var url: URL
 
     private let bookmarkKey = "outputFolderBookmark"
-    private var isSecurityScoped = false
 
     init() {
         let fallback = (try? FileManager.default.url(
@@ -28,18 +28,14 @@ final class OutputFolderStore {
             var isStale = false
             if let resolved = try? URL(
                 resolvingBookmarkData: data,
-                options: [.withSecurityScope],
-                relativeTo: nil,
                 bookmarkDataIsStale: &isStale
-            ), Self.isWritableFolder(resolved) {
+            ), FileManager.default.isWritableFile(atPath: resolved.path) {
                 url = resolved
-                isSecurityScoped = true
                 if isStale { saveBookmark(resolved) }
                 return
             }
-            // Bookmark non risolvibile o senza permesso di scrittura (es. creato
-            // da una versione dell'app con accesso in sola lettura): va scartato,
-            // l'utente dovrà scegliere di nuovo la cartella.
+            // Bookmark non risolvibile o cartella non scrivibile (anche quelli
+            // con ambito di sicurezza dell'era sandbox): va scartato.
             UserDefaults.standard.removeObject(forKey: bookmarkKey)
         }
         url = fallback
@@ -56,32 +52,12 @@ final class OutputFolderStore {
 
         guard panel.runModal() == .OK, let chosen = panel.url else { return }
         url = chosen
-        isSecurityScoped = true
         saveBookmark(chosen)
-    }
-
-    /// Avvia l'accesso con ambito di sicurezza (se necessario) prima di scrivere.
-    func beginAccess() -> Bool {
-        guard isSecurityScoped else { return false }
-        return url.startAccessingSecurityScopedResource()
-    }
-
-    /// Termina l'accesso avviato da `beginAccess()`.
-    func endAccess() {
-        if isSecurityScoped { url.stopAccessingSecurityScopedResource() }
-    }
-
-    /// Verifica che la cartella del bookmark sia davvero scrivibile con
-    /// l'accesso con ambito di sicurezza attivo.
-    private static func isWritableFolder(_ url: URL) -> Bool {
-        let started = url.startAccessingSecurityScopedResource()
-        defer { if started { url.stopAccessingSecurityScopedResource() } }
-        return FileManager.default.isWritableFile(atPath: url.path)
     }
 
     private func saveBookmark(_ url: URL) {
         if let data = try? url.bookmarkData(
-            options: [.withSecurityScope],
+            options: [],
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         ) {

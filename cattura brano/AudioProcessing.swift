@@ -11,6 +11,7 @@ nonisolated enum RecorderError: LocalizedError {
     case deviceSelectionFailed(OSStatus)
     case invalidFormat
     case emptyRecording
+    case separationFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -20,8 +21,19 @@ nonisolated enum RecorderError: LocalizedError {
             "Formato audio dell'interfaccia non valido."
         case .emptyRecording:
             "La registrazione non contiene audio da salvare."
+        case .separationFailed(let details):
+            "Separazione degli stem non riuscita. \(details)"
         }
     }
+}
+
+/// Esito dell'esportazione principale.
+nonisolated struct ExportResult {
+    let savedURL: URL
+    /// WAV temporaneo della regione elaborata (rifilata e normalizzata, senza
+    /// click), da passare al post-processore per le tracce aggiuntive;
+    /// `nil` se non richiesto.
+    let processedCopyURL: URL?
 }
 
 /// Riceve i buffer dal tap del motore audio (thread audio in tempo reale) e li
@@ -114,11 +126,10 @@ nonisolated enum AudioProcessor {
     ///     silenzio; `nil` disattiva il trim e salva l'intera registrazione.
     ///   - appendBPM: se `true` stima i BPM e li aggiunge al nome del file
     ///     (solo quando rilevabili con confidenza sufficiente).
-    ///   - addClick: se `true` mixa un click sulle battute rilevate (richiede
-    ///     un tempo rilevabile, come per i BPM).
     ///   - normalize: se `true` riporta il picco della traccia a −1 dBFS.
+    ///   - prepareProcessedCopy: se `true` scrive anche un WAV temporaneo
+    ///     della regione elaborata per le tracce aggiuntive (click/drumless).
     ///   - padding: secondi di margine da mantenere prima/dopo l'audio.
-    /// - Returns: l'URL del file salvato.
     static func trimAndExport(
         source: URL,
         folder: URL,
@@ -126,10 +137,10 @@ nonisolated enum AudioProcessor {
         format: RecordingFormat,
         silenceThreshold: Float?,
         appendBPM: Bool = false,
-        addClick: Bool = false,
         normalize: Bool = false,
+        prepareProcessedCopy: Bool = false,
         padding: Double = 0.1
-    ) throws -> URL {
+    ) throws -> ExportResult {
         let readFile = try AVAudioFile(forReading: source)
         let processingFormat = readFile.processingFormat
         let sampleRate = processingFormat.sampleRate
@@ -198,18 +209,14 @@ nonisolated enum AudioProcessor {
             gain = Self.normalizationPeak / globalPeak
         }
 
-        // Analisi ritmica sulla stessa regione che verrà esportata.
+        // Stima dei BPM sulla stessa regione che verrà esportata.
         var finalName = name
-        var clickBeats: [AVAudioFramePosition] = []
-        if appendBPM || addClick {
+        if appendBPM {
             let analysis = BeatDetector.analyze(
                 readFile: readFile, startFrame: startFrame, endFrame: endFrame
             )
-            if appendBPM, let bpm = analysis.bpm {
+            if let bpm = analysis.bpm {
                 finalName += " - \(Int(bpm.rounded())) BPM"
-            }
-            if addClick {
-                clickBeats = analysis.beats
             }
         }
 
@@ -225,7 +232,7 @@ nonisolated enum AudioProcessor {
                 framesToWrite: framesToWrite,
                 chunkSize: chunkSize,
                 gain: gain,
-                clickBeats: clickBeats,
+                clickBeats: [],
                 sampleRate: sampleRate,
                 channels: channels,
                 bitrateKbps: format.bitrateKbps,
@@ -240,7 +247,92 @@ nonisolated enum AudioProcessor {
             )
             try readRegion(
                 readFile: readFile, buffer: buffer, startFrame: startFrame,
-                framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain,
+                framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain
+            ) { chunk in
+                try outputFile.write(from: chunk)
+            }
+        }
+
+        // Copia elaborata per il post-processore (click/drumless): stessa
+        // regione e stesso guadagno, in WAV float senza perdita.
+        var processedCopyURL: URL?
+        if prepareProcessedCopy {
+            let copyURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cattura-elaborata-\(UUID().uuidString).wav")
+            let copyFile = try AVAudioFile(
+                forWriting: copyURL,
+                settings: [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVSampleRateKey: sampleRate,
+                    AVNumberOfChannelsKey: Int(channels),
+                    AVLinearPCMBitDepthKey: 32,
+                    AVLinearPCMIsFloatKey: true,
+                    AVLinearPCMIsBigEndianKey: false,
+                    AVLinearPCMIsNonInterleaved: false,
+                ],
+                commonFormat: .pcmFormatFloat32,
+                interleaved: false
+            )
+            try readRegion(
+                readFile: readFile, buffer: buffer, startFrame: startFrame,
+                framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain
+            ) { chunk in
+                try copyFile.write(from: chunk)
+            }
+            processedCopyURL = copyURL
+        }
+
+        return ExportResult(savedURL: outputURL, processedCopyURL: processedCopyURL)
+    }
+
+    /// Esporta un file già elaborato (nessun trim né guadagno) nel formato
+    /// scelto, mixando eventualmente il click sulle battute indicate.
+    /// - Parameter clickBeatsSeconds: posizioni delle battute in secondi
+    ///   (indipendenti dalla frequenza di campionamento della sorgente).
+    static func exportProcessed(
+        source: URL,
+        folder: URL,
+        name: String,
+        format: RecordingFormat,
+        clickBeatsSeconds: [Double]
+    ) throws -> URL {
+        let readFile = try AVAudioFile(forReading: source)
+        let processingFormat = readFile.processingFormat
+        let sampleRate = processingFormat.sampleRate
+        let channels = processingFormat.channelCount
+        let chunkSize: AVAudioFrameCount = 65_536
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: chunkSize)
+        else { throw RecorderError.invalidFormat }
+
+        let clickBeats = clickBeatsSeconds.map { AVAudioFramePosition($0 * sampleRate) }
+
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let outputURL = uniqueURL(folder: folder, name: name, fileExtension: format.fileExtension)
+
+        if format.usesLAME {
+            try exportMP3(
+                readFile: readFile,
+                buffer: buffer,
+                startFrame: 0,
+                framesToWrite: readFile.length,
+                chunkSize: chunkSize,
+                gain: 1,
+                clickBeats: clickBeats,
+                sampleRate: sampleRate,
+                channels: channels,
+                bitrateKbps: format.bitrateKbps,
+                outputURL: outputURL
+            )
+        } else {
+            let outputFile = try AVAudioFile(
+                forWriting: outputURL,
+                settings: format.settings(sampleRate: sampleRate, channels: channels),
+                commonFormat: .pcmFormatFloat32,
+                interleaved: false
+            )
+            try readRegion(
+                readFile: readFile, buffer: buffer, startFrame: 0,
+                framesToWrite: readFile.length, chunkSize: chunkSize,
                 clickBeats: clickBeats, sampleRate: sampleRate
             ) { chunk in
                 try outputFile.write(from: chunk)

@@ -16,6 +16,7 @@ struct ContentView: View {
     @AppStorage("trimSilence") private var trimSilence = true
     @AppStorage("appendBPM") private var appendBPM = true
     @AppStorage("addClick") private var addClick = false
+    @AppStorage("separateDrums") private var separateDrums = false
     @AppStorage("normalizeLevel") private var normalizeLevel = false
 
     private var format: RecordingFormat {
@@ -94,8 +95,15 @@ struct ContentView: View {
                         }
 
                         Toggle(isOn: $addClick) {
-                            Text("Aggiungi un click sulle battute")
-                            Text("Un tick a ogni battito rilevato, mixato nella traccia salvata.")
+                            Text("Genera la traccia con il click")
+                            Text("Salva una copia \"(click)\" con un tick sulle battute; la traccia principale resta pulita.")
+                        }
+                    }
+
+                    if DemucsSeparator.isAvailable {
+                        Toggle(isOn: $separateDrums) {
+                            Text("Genera la traccia senza batteria")
+                            Text("Separa gli stem con demucs e salva una copia \"(drumless)\"; con il click attivo anche \"(drumless click)\".")
                         }
                     }
                 }
@@ -165,14 +173,35 @@ struct ContentView: View {
             .font(.callout)
         }
 
+        if recorder.isPostProcessing {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Generazione delle tracce aggiuntive… (può richiedere qualche minuto)")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+        }
+
         if let url = recorder.lastSavedURL {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text("Salvato: \(url.lastPathComponent)")
                 Button("Mostra nel Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    NSWorkspace.shared.activateFileViewerSelecting(
+                        [url] + recorder.extraFiles
+                    )
                 }
                 .buttonStyle(.link)
+            }
+            .font(.callout)
+        }
+
+        ForEach(recorder.extraFiles, id: \.self) { file in
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles").foregroundStyle(.blue)
+                Text(file.lastPathComponent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             .font(.callout)
         }
@@ -191,7 +220,6 @@ struct ContentView: View {
 
     private func toggleRecording() {
         if recorder.isRecording {
-            let didScope = folderStore.beginAccess()
             let folder = folderStore.url
             Task {
                 await recorder.stopRecording(
@@ -201,9 +229,9 @@ struct ContentView: View {
                     trimSilence: trimSilence,
                     appendBPM: appendBPM,
                     addClick: addClick,
+                    separateDrums: separateDrums,
                     normalize: normalizeLevel
                 )
-                if didScope { folderStore.endAccess() }
             }
         } else {
             Task { await recorder.startRecording() }
