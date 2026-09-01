@@ -18,9 +18,16 @@ final class DemucsInstaller {
     enum Status: Equatable {
         case idle
         case running(String)
+        /// Homebrew assente: serve un passaggio manuale nel Terminale.
+        case needsHomebrew
         case failed(String)
         case done
     }
+
+    /// Comando ufficiale di installazione di Homebrew (da incollare nel
+    /// Terminale: chiede la password di amministratore, non automatizzabile).
+    static let homebrewCommand =
+        #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
 
     private(set) var status: Status = .idle
 
@@ -52,9 +59,7 @@ final class DemucsInstaller {
             var pipx = Self.pipxURL
             if pipx == nil {
                 guard let brew = Self.brewURL else {
-                    status = .failed(
-                        "Serve Homebrew: installalo da brew.sh e premi di nuovo Installa."
-                    )
+                    status = .needsHomebrew
                     return
                 }
                 status = .running("Installazione di pipx…")

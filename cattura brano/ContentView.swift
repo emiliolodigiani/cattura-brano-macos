@@ -150,6 +150,26 @@ struct ContentView: View {
                 Text(step)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            case .needsHomebrew:
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Serve prima Homebrew: incolla questo comando nel Terminale, completa l'installazione e premi di nuovo Installa.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Text(DemucsInstaller.homebrewCommand)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                        Button("Copia") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(
+                                DemucsInstaller.homebrewCommand, forType: .string
+                            )
+                        }
+                        .controlSize(.small)
+                    }
+                }
             case .failed(let message):
                 Label(message, systemImage: "exclamationmark.triangle")
                     .font(.caption)
