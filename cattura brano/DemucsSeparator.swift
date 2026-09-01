@@ -65,17 +65,16 @@ nonisolated enum DemucsSeparator {
             "-o", workDir.path,
             source.path,
         ]
-        let errorPipe = Pipe()
-        process.standardOutput = Pipe()
-        process.standardError = errorPipe
+        // L'output va scaricato man mano: le barre di avanzamento di demucs
+        // superano la capienza della pipe (64 KB) e, senza un lettore attivo,
+        // il processo si blocca in scrittura e non termina mai.
+        let errorOutput = drainingErrorPipe(for: process)
+        process.standardOutput = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
 
         guard process.terminationStatus == 0 else {
-            let output = String(
-                data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8
-            ) ?? ""
-            throw RecorderError.separationFailed(String(output.suffix(300)))
+            throw RecorderError.separationFailed(String(errorOutput.text().suffix(300)))
         }
 
         let trackName = source.deletingPathExtension().lastPathComponent
@@ -89,6 +88,42 @@ nonisolated enum DemucsSeparator {
         }
         return stems
     }
+}
+
+/// Raccoglie lo standard error di un processo man mano che arriva, senza
+/// far riempire la pipe. Thread-safe.
+nonisolated final class ProcessErrorBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    func text() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+}
+
+/// Collega a `process` una pipe di standard error svuotata in continuo e
+/// restituisce il buffer da cui leggere il testo raccolto.
+nonisolated func drainingErrorPipe(for process: Process) -> ProcessErrorBuffer {
+    let buffer = ProcessErrorBuffer()
+    let pipe = Pipe()
+    pipe.fileHandleForReading.readabilityHandler = { handle in
+        let chunk = handle.availableData
+        if chunk.isEmpty {
+            handle.readabilityHandler = nil
+        } else {
+            buffer.append(chunk)
+        }
+    }
+    process.standardError = pipe
+    return buffer
 }
 
 /// Genera le tracce aggiuntive dopo il salvataggio: "(click)", "(drumless)"

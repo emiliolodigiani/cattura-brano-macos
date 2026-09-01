@@ -120,17 +120,15 @@ final class DemucsInstaller {
             let process = Process()
             process.executableURL = executable
             process.arguments = arguments
-            let errorPipe = Pipe()
-            process.standardOutput = Pipe()
-            process.standardError = errorPipe
+            // Pipe svuotata in continuo: l'output abbondante di brew/pip
+            // riempirebbe la pipe e bloccherebbe il processo per sempre.
+            let errorOutput = drainingErrorPipe(for: process)
+            process.standardOutput = FileHandle.nullDevice
             try process.run()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
-                let output = String(
-                    data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8
-                ) ?? ""
                 throw InstallError(
-                    message: "Installazione non riuscita. \(String(output.suffix(300)))"
+                    message: "Installazione non riuscita. \(String(errorOutput.text().suffix(300)))"
                 )
             }
         }.value
