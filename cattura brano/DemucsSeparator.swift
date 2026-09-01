@@ -34,18 +34,34 @@ nonisolated enum DemucsSeparator {
 
     static var isAvailable: Bool { executableURL != nil }
 
+    /// Modello scelto nelle Impostazioni (⌘,): "htdemucs" (veloce) oppure
+    /// "htdemucs_ft" (fine-tuned, qualità migliore, ~4× più lento).
+    static var model: String {
+        UserDefaults.standard.string(forKey: "demucsModel") ?? "htdemucs"
+    }
+
+    /// Passate di analisi (--shifts): più passate mediano il risultato e
+    /// riducono gli artefatti, moltiplicando i tempi.
+    static var shifts: Int {
+        let stored = UserDefaults.standard.integer(forKey: "demucsShifts")
+        return stored > 0 ? stored : 1
+    }
+
     /// Esegue demucs in modalità due stem (batteria / resto) su `source`,
     /// scrivendo dentro `workDir` (creata e poi eliminata dal chiamante).
     static func separate(source: URL, workDir: URL) throws -> Stems {
         guard let executable = executableURL else {
             throw RecorderError.separationFailed("demucs non è installato")
         }
+        let model = Self.model
 
         let process = Process()
         process.executableURL = executable
         process.arguments = [
             "--two-stems", "drums",
-            "-n", "htdemucs",
+            "-n", model,
+            "--shifts", String(shifts),
+            "--float32",
             "-o", workDir.path,
             source.path,
         ]
@@ -63,7 +79,7 @@ nonisolated enum DemucsSeparator {
         }
 
         let trackName = source.deletingPathExtension().lastPathComponent
-        let stemFolder = workDir.appendingPathComponent("htdemucs/\(trackName)")
+        let stemFolder = workDir.appendingPathComponent("\(model)/\(trackName)")
         let stems = Stems(
             drums: stemFolder.appendingPathComponent("drums.wav"),
             noDrums: stemFolder.appendingPathComponent("no_drums.wav")

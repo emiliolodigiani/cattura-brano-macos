@@ -13,5 +13,9 @@ struct cattura_branoApp: App {
         WindowGroup("Cattura Brano") {
             ContentView()
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }
