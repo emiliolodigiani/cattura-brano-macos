@@ -64,10 +64,10 @@
 			fileSystemSynchronizedGroups = (
 				A58AA1B83046D28F00FFAA31 /* cattura brano */,
 			);
-			name = "cattura brano";
+			name = "Cattura Brano";
 			packageProductDependencies = (
 			);
-			productName = "cattura brano";
+			productName = "Cattura Brano";
 			productReference = A58AA1B63046D28F00FFAA31 /* Cattura Brano.app */;
 			productType = "com.apple.product-type.application";
 		};

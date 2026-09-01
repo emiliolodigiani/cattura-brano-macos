@@ -4,7 +4,7 @@
         {
             "label": "Run app",
             "type": "shell",
-            "command": "xcodebuild -project 'cattura brano.xcodeproj' -scheme 'cattura brano' -configuration Debug -derivedDataPath build build && open 'build/Build/Products/Debug/Cattura Brano.app'",
+            "command": "xcodebuild -project 'cattura brano.xcodeproj' -scheme 'Cattura Brano' -configuration Debug -derivedDataPath build build && open 'build/Build/Products/Debug/Cattura Brano.app'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -22,7 +22,7 @@
         {
             "label": "Build only",
             "type": "shell",
-            "command": "xcodebuild -project 'cattura brano.xcodeproj' -scheme 'cattura brano' -configuration Debug -derivedDataPath build build",
+            "command": "xcodebuild -project 'cattura brano.xcodeproj' -scheme 'Cattura Brano' -configuration Debug -derivedDataPath build build",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
