@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var recorder = AudioRecorder()
@@ -200,18 +201,29 @@ struct ContentView: View {
 
             statusSection
 
-            Button(action: toggleRecording) {
-                Label(
-                    recorder.isRecording ? "Stop" : "Registra",
-                    systemImage: recorder.isRecording ? "stop.fill" : "record.circle"
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+            HStack(spacing: 10) {
+                Button(action: toggleRecording) {
+                    Label(
+                        recorder.isRecording ? "Stop" : "Registra",
+                        systemImage: recorder.isRecording ? "stop.fill" : "record.circle"
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(recorder.isRecording ? .gray : .red)
+                .controlSize(.large)
+                .disabled(recorder.selectedDeviceID == nil || recorder.isSaving)
+
+                Button(action: chooseFileToProcess) {
+                    Label("Elabora file…", systemImage: "square.and.arrow.down.on.square")
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .help("Applica le stesse elaborazioni a un file audio esistente")
+                .disabled(recorder.isRecording || recorder.isSaving || recorder.isPostProcessing)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(recorder.isRecording ? .gray : .red)
-            .controlSize(.large)
-            .disabled(recorder.selectedDeviceID == nil || recorder.isSaving)
         }
         .padding(20)
         // Scheda flottante in vetro, staccata dai bordi: il contenuto del
@@ -295,6 +307,32 @@ struct ContentView: View {
             }
         } else {
             Task { await recorder.startRecording() }
+        }
+    }
+
+    /// Sceglie un file audio esistente e lo elabora con le opzioni correnti.
+    private func chooseFileToProcess() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.audio]
+        panel.prompt = "Elabora"
+        panel.message = "Scegli il file audio da elaborare con le opzioni correnti"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let folder = folderStore.url
+        Task {
+            await recorder.processExistingFile(
+                url,
+                format: format,
+                outputFolder: folder,
+                trimSilence: trimSilence,
+                appendBPM: appendBPM,
+                addClick: addClick,
+                separateDrums: separateDrums,
+                normalize: normalizeLevel
+            )
         }
     }
 

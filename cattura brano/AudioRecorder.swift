@@ -188,9 +188,64 @@ final class AudioRecorder {
         self.writer = nil
         self.tempURL = nil
 
-        let name = sanitizedFilename(filename)
-        let threshold = silenceThreshold
+        await exportAndPostProcess(
+            source: tempURL,
+            deleteSource: true,
+            name: sanitizedFilename(filename),
+            format: format,
+            outputFolder: outputFolder,
+            trimSilence: trimSilence,
+            appendBPM: appendBPM,
+            addClick: addClick,
+            separateDrums: separateDrums,
+            normalize: normalize
+        )
+    }
 
+    /// Elabora un file audio esistente con la stessa pipeline delle
+    /// registrazioni (trim, normalizzazione, BPM, click, drumless).
+    func processExistingFile(
+        _ source: URL,
+        format: RecordingFormat,
+        outputFolder: URL,
+        trimSilence: Bool,
+        appendBPM: Bool,
+        addClick: Bool,
+        separateDrums: Bool,
+        normalize: Bool
+    ) async {
+        guard !isRecording, !isSaving, !isPostProcessing else { return }
+        errorMessage = nil
+        lastSavedURL = nil
+        extraFiles = []
+        await exportAndPostProcess(
+            source: source,
+            deleteSource: false,
+            name: sanitizedFilename(source.deletingPathExtension().lastPathComponent),
+            format: format,
+            outputFolder: outputFolder,
+            trimSilence: trimSilence,
+            appendBPM: appendBPM,
+            addClick: addClick,
+            separateDrums: separateDrums,
+            normalize: normalize
+        )
+    }
+
+    /// Esporta `source` con le opzioni scelte e genera le tracce aggiuntive.
+    private func exportAndPostProcess(
+        source: URL,
+        deleteSource: Bool,
+        name: String,
+        format: RecordingFormat,
+        outputFolder: URL,
+        trimSilence: Bool,
+        appendBPM: Bool,
+        addClick: Bool,
+        separateDrums: Bool,
+        normalize: Bool
+    ) async {
+        let threshold = silenceThreshold
         let wantsExtras = addClick || separateDrums
 
         isSaving = true
@@ -198,7 +253,7 @@ final class AudioRecorder {
         do {
             let result = try await Task.detached(priority: .userInitiated) {
                 try AudioProcessor.trimAndExport(
-                    source: tempURL,
+                    source: source,
                     folder: outputFolder,
                     name: name,
                     format: format,
@@ -214,7 +269,7 @@ final class AudioRecorder {
             errorMessage = "Impossibile salvare il file: \(error.localizedDescription)"
         }
 
-        try? FileManager.default.removeItem(at: tempURL)
+        if deleteSource { try? FileManager.default.removeItem(at: source) }
         isSaving = false
 
         if let exportResult, let processedCopy = exportResult.processedCopyURL {

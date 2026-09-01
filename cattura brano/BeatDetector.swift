@@ -107,69 +107,61 @@ nonisolated enum BeatDetector {
         let bpm = 60.0 / median
         guard plausibleRange.contains(bpm) else { return .none }
 
-        // Il click deve suonare anche nelle battute senza attacchi (pause,
-        // sezioni di sola voce): riempiamo i vuoti e proseguiamo fino a fine
-        // regione a passo mediano. Dove i battiti reali ci sono, il click
-        // segue la loro fase e si risincronizza col brano.
-        let filled = fillGaps(
-            in: beats,
+        // Griglia del click: un metronomo a passo mediano, ancorato alla fase
+        // complessiva dei battiti rilevati (media vettoriale) e con una
+        // correzione dolce della deriva. Non si riaggancia a ogni battito:
+        // il jitter dell'esecuzione e i colpi fuori griglia non spostano i
+        // quarti, e la griglia copre l'intera regione, pause comprese.
+        let grid = metronomeGrid(
+            beats: beats,
             medianInterval: AVAudioFramePosition(median * sampleRate),
             startFrame: startFrame,
             endFrame: endFrame
         )
-        return BeatAnalysis(bpm: bpm, beats: filled)
+        return BeatAnalysis(bpm: bpm, beats: grid)
     }
 
-    /// Costruisce la griglia completa del click a partire dai battiti rilevati:
-    /// scarta i doppi scatti della fase di aggancio del tracker, riempie i
-    /// vuoti a passo `medianInterval` e prolunga la griglia all'indietro fino
-    /// a `startFrame` e in avanti fino a `endFrame`.
-    private static func fillGaps(
-        in beats: [AVAudioFramePosition],
+    /// Costruisce la griglia metronomica del click sull'intera regione.
+    private static func metronomeGrid(
+        beats: [AVAudioFramePosition],
         medianInterval: AVAudioFramePosition,
         startFrame: AVAudioFramePosition,
         endFrame: AVAudioFramePosition
     ) -> [AVAudioFramePosition] {
         guard medianInterval > 0, !beats.isEmpty else { return beats }
-        let minimumGap = medianInterval * 6 / 10
+        let interval = Double(medianInterval)
 
-        // Scarta i battiti troppo ravvicinati (doppi scatti dell'aggancio).
-        var cleaned: [AVAudioFramePosition] = []
+        // Fase globale: media vettoriale dei residui dei battiti rispetto al
+        // passo, robusta a jitter, doppi scatti e battiti mancanti.
+        var sumSin = 0.0
+        var sumCos = 0.0
         for beat in beats {
-            if let last = cleaned.last, beat - last < minimumGap { continue }
-            cleaned.append(beat)
+            let residue = Double(beat - startFrame).truncatingRemainder(dividingBy: interval)
+            let angle = 2 * Double.pi * residue / interval
+            sumSin += sin(angle)
+            sumCos += cos(angle)
         }
-        guard let first = cleaned.first else { return beats }
+        var phase = atan2(sumSin, sumCos) / (2 * Double.pi) * interval
+        if phase < 0 { phase += interval }
 
-        // Prolunga all'indietro fino all'inizio della regione, così il click
-        // parte dal primo suono anche se il tracker aggancia dopo qualche
-        // secondo.
-        var filled: [AVAudioFramePosition] = []
-        var previous = first - medianInterval
-        while previous >= startFrame {
-            filled.append(previous)
-            previous -= medianInterval
-        }
-        filled.reverse()
-        filled.append(first)
-
-        // Riempie i vuoti interni mantenendo la fase dei battiti reali.
-        for beat in cleaned.dropFirst() {
-            var expected = filled[filled.count - 1] + medianInterval
-            while beat - expected > minimumGap {
-                filled.append(expected)
-                expected += medianInterval
+        // Metronomo con correzione dolce: se vicino al passo c'è un battito
+        // reale (±⅓ di intervallo), la fase recupera il 25% dell'errore, così
+        // la griglia segue le derive lente del tempo senza tremolii.
+        var grid: [AVAudioFramePosition] = []
+        var position = Double(startFrame) + phase
+        var beatIndex = 0
+        while position < Double(endFrame) {
+            while beatIndex + 1 < beats.count,
+                  abs(Double(beats[beatIndex + 1]) - position)
+                      <= abs(Double(beats[beatIndex]) - position) {
+                beatIndex += 1
             }
-            filled.append(beat)
+            let error = Double(beats[beatIndex]) - position
+            if abs(error) < interval / 3 { position += error * 0.25 }
+            grid.append(AVAudioFramePosition(position.rounded()))
+            position += interval
         }
-
-        // Prolunga in avanti fino alla fine della regione.
-        var next = filled[filled.count - 1] + medianInterval
-        while next < endFrame {
-            filled.append(next)
-            next += medianInterval
-        }
-        return filled
+        return grid
     }
 }
 
