@@ -86,10 +86,10 @@
 				};
 			};
 			buildConfigurationList = A58AA1B13046D28F00FFAA31 /* Build configuration list for PBXProject "cattura brano" */;
-			developmentRegion = en;
+			developmentRegion = it;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				it,
 				Base,
 			);
 			mainGroup = A58AA1AD3046D28F00FFAA31;
@@ -261,6 +261,7 @@
 					/opt/homebrew/opt/aubio/include,
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Cattura Brano";
+				INFOPLIST_KEY_CFBundleName = "Cattura Brano";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "L'app registra l'audio dal dispositivo di ingresso selezionato per salvare i brani catturati.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -306,6 +307,7 @@
 					/opt/homebrew/opt/aubio/include,
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Cattura Brano";
+				INFOPLIST_KEY_CFBundleName = "Cattura Brano";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "L'app registra l'audio dal dispositivo di ingresso selezionato per salvare i brani catturati.";
 				LD_RUNPATH_SEARCH_PATHS = (
