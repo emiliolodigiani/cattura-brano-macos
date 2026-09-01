@@ -261,7 +261,7 @@
 					/opt/homebrew/opt/aubio/include,
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Cattura Brano";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Emilio Lodigiani";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "L'app registra l'audio dal dispositivo di ingresso selezionato per salvare i brani catturati.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -306,7 +306,7 @@
 					/opt/homebrew/opt/aubio/include,
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Cattura Brano";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Emilio Lodigiani";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "L'app registra l'audio dal dispositivo di ingresso selezionato per salvare i brani catturati.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
