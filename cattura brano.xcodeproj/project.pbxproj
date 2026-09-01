@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		A58AA1B63046D28F00FFAA31 /* cattura brano.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cattura brano.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A58AA1B63046D28F00FFAA31 /* Cattura Brano.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cattura Brano.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -40,7 +40,7 @@
 		A58AA1B73046D28F00FFAA31 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A58AA1B63046D28F00FFAA31 /* cattura brano.app */,
+				A58AA1B63046D28F00FFAA31 /* Cattura Brano.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -67,7 +67,7 @@
 			packageProductDependencies = (
 			);
 			productName = "cattura brano";
-			productReference = A58AA1B63046D28F00FFAA31 /* cattura brano.app */;
+			productReference = A58AA1B63046D28F00FFAA31 /* Cattura Brano.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
