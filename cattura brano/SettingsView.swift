@@ -23,9 +23,11 @@ struct SettingsView: View {
                 }
 
                 Picker(selection: $demucsShifts) {
-                    ForEach(1...5, id: \.self) { count in
-                        Text(count == 1 ? "1 · standard" : "\(count)").tag(count)
-                    }
+                    Text("1 · standard").tag(1)
+                    Text("2 · alta").tag(2)
+                    Text("3 · molto alta").tag(3)
+                    Text("4 · altissima").tag(4)
+                    Text("5 · estrema").tag(5)
                 } label: {
                     Text("Passate di analisi")
                     Text("Più passate mediano il risultato e riducono gli artefatti; ogni passata in più allunga i tempi in proporzione. Il guadagno cala oltre 2–3.")
