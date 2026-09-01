@@ -26,8 +26,7 @@ struct ContentView: View {
 
     var body: some View {
         @Bindable var recorder = recorder
-        return VStack(spacing: 0) {
-            Form {
+        return Form {
                 Section("Ingresso") {
                     HStack {
                         Picker("Interfaccia", selection: $recorder.selectedDeviceID) {
@@ -100,10 +99,12 @@ struct ContentView: View {
                         }
                     }
                 }
-            }
-            .formStyle(.grouped)
-
+        }
+        .formStyle(.grouped)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             recordingBar
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
         }
         .frame(minWidth: 500, minHeight: 600)
         .onChange(of: recorder.selectedDeviceID) {
@@ -144,9 +145,11 @@ struct ContentView: View {
             .controlSize(.large)
             .disabled(recorder.selectedDeviceID == nil || recorder.isSaving)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .background(.bar)
+        .padding(20)
+        // Scheda flottante in vetro, staccata dai bordi: il contenuto del
+        // modulo scorre visibilmente dietro e intorno, come nei pannelli
+        // di sistema di macOS 26.
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
     }
 
     // MARK: Stato / esiti

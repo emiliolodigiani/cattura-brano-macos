@@ -106,7 +106,70 @@ nonisolated enum BeatDetector {
         }
         let bpm = 60.0 / median
         guard plausibleRange.contains(bpm) else { return .none }
-        return BeatAnalysis(bpm: bpm, beats: beats)
+
+        // Il click deve suonare anche nelle battute senza attacchi (pause,
+        // sezioni di sola voce): riempiamo i vuoti e proseguiamo fino a fine
+        // regione a passo mediano. Dove i battiti reali ci sono, il click
+        // segue la loro fase e si risincronizza col brano.
+        let filled = fillGaps(
+            in: beats,
+            medianInterval: AVAudioFramePosition(median * sampleRate),
+            startFrame: startFrame,
+            endFrame: endFrame
+        )
+        return BeatAnalysis(bpm: bpm, beats: filled)
+    }
+
+    /// Costruisce la griglia completa del click a partire dai battiti rilevati:
+    /// scarta i doppi scatti della fase di aggancio del tracker, riempie i
+    /// vuoti a passo `medianInterval` e prolunga la griglia all'indietro fino
+    /// a `startFrame` e in avanti fino a `endFrame`.
+    private static func fillGaps(
+        in beats: [AVAudioFramePosition],
+        medianInterval: AVAudioFramePosition,
+        startFrame: AVAudioFramePosition,
+        endFrame: AVAudioFramePosition
+    ) -> [AVAudioFramePosition] {
+        guard medianInterval > 0, !beats.isEmpty else { return beats }
+        let minimumGap = medianInterval * 6 / 10
+
+        // Scarta i battiti troppo ravvicinati (doppi scatti dell'aggancio).
+        var cleaned: [AVAudioFramePosition] = []
+        for beat in beats {
+            if let last = cleaned.last, beat - last < minimumGap { continue }
+            cleaned.append(beat)
+        }
+        guard let first = cleaned.first else { return beats }
+
+        // Prolunga all'indietro fino all'inizio della regione, così il click
+        // parte dal primo suono anche se il tracker aggancia dopo qualche
+        // secondo.
+        var filled: [AVAudioFramePosition] = []
+        var previous = first - medianInterval
+        while previous >= startFrame {
+            filled.append(previous)
+            previous -= medianInterval
+        }
+        filled.reverse()
+        filled.append(first)
+
+        // Riempie i vuoti interni mantenendo la fase dei battiti reali.
+        for beat in cleaned.dropFirst() {
+            var expected = filled[filled.count - 1] + medianInterval
+            while beat - expected > minimumGap {
+                filled.append(expected)
+                expected += medianInterval
+            }
+            filled.append(beat)
+        }
+
+        // Prolunga in avanti fino alla fine della regione.
+        var next = filled[filled.count - 1] + medianInterval
+        while next < endFrame {
+            filled.append(next)
+            next += medianInterval
+        }
+        return filled
     }
 }
 
