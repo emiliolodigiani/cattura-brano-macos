@@ -10,6 +10,8 @@ import SwiftUI
 struct ContentView: View {
     @State private var recorder = AudioRecorder()
     @State private var folderStore = OutputFolderStore()
+    @State private var demucsInstaller = DemucsInstaller()
+    @State private var demucsAvailable = DemucsSeparator.isAvailable
 
     @State private var filename = ""
     @AppStorage("recordingFormat") private var formatRaw = RecordingFormat.alac.rawValue
@@ -100,11 +102,13 @@ struct ContentView: View {
                         }
                     }
 
-                    if DemucsSeparator.isAvailable {
+                    if demucsAvailable {
                         Toggle(isOn: $separateDrums) {
                             Text("Genera la traccia senza batteria")
                             Text("Separa gli stem con demucs e salva una copia \"(drumless)\"; con il click attivo anche \"(drumless click)\".")
                         }
+                    } else {
+                        demucsInstallRow
                     }
                 }
         }
@@ -117,6 +121,42 @@ struct ContentView: View {
         .frame(minWidth: 500, minHeight: 600)
         .onChange(of: recorder.selectedDeviceID) {
             recorder.noteDeviceChanged()
+        }
+    }
+
+    // MARK: Installazione guidata di demucs
+
+    /// Mostrato al posto dell'opzione drumless quando demucs non è installato.
+    private var demucsInstallRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent {
+                if demucsInstaller.isRunning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Installa…") {
+                        Task {
+                            await demucsInstaller.install()
+                            demucsAvailable = DemucsSeparator.isAvailable
+                        }
+                    }
+                }
+            } label: {
+                Text("Traccia senza batteria e click di precisione")
+                Text("Richiedono demucs, il motore di separazione degli stem (~600 MB, una volta sola).")
+            }
+
+            switch demucsInstaller.status {
+            case .running(let step):
+                Text(step)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .failed(let message):
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            case .idle, .done:
+                EmptyView()
+            }
         }
     }
 
