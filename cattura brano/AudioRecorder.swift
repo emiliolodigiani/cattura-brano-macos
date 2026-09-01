@@ -34,6 +34,8 @@ final class AudioRecorder {
 
     private let engine = AVAudioEngine()
     private var writer: TapWriter?
+    /// Tap di solo monitoraggio, attivo quando non si registra.
+    private var monitor: TapWriter?
     private var tempURL: URL?
     private var startDate: Date?
     private var meterTask: Task<Void, Never>?
@@ -44,6 +46,7 @@ final class AudioRecorder {
 
     init() {
         refreshDevices()
+        Task { await startMonitoring() }
     }
 
     // MARK: Dispositivi
@@ -53,6 +56,55 @@ final class AudioRecorder {
         if selectedDeviceID == nil || !devices.contains(where: { $0.id == selectedDeviceID }) {
             selectedDeviceID = AudioDeviceEnumerator.defaultInputDevice() ?? devices.first?.id
         }
+    }
+
+    // MARK: Monitoraggio del livello (senza registrare)
+
+    /// Avvia il motore audio con un tap di sola misura, così il misuratore
+    /// mostra il livello d'ingresso anche prima di registrare.
+    func startMonitoring() async {
+        guard !isRecording, monitor == nil else { return }
+        // Senza permesso non mostriamo errori: il messaggio arriva solo
+        // quando l'utente prova davvero a registrare.
+        guard await requestMicrophoneAccess() else { return }
+
+        do {
+            try configureEngineInput()
+            let input = engine.inputNode
+            let format = input.outputFormat(forBus: 0)
+            guard format.channelCount > 0, format.sampleRate > 0 else { return }
+
+            let monitor = try TapWriter(url: nil, format: format)
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                monitor.append(buffer)
+            }
+            engine.prepare()
+            try engine.start()
+
+            self.monitor = monitor
+            startMeter()
+        } catch {
+            // Il monitoraggio è accessorio: se fallisce, il misuratore resta
+            // fermo e l'eventuale errore emerge alla registrazione.
+            stopMonitoring()
+        }
+    }
+
+    private func stopMonitoring() {
+        guard monitor != nil else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        if engine.isRunning { engine.stop() }
+        monitor = nil
+        stopMeter()
+        levels = []
+    }
+
+    /// Da chiamare quando cambia l'interfaccia selezionata: riavvia il
+    /// monitoraggio sul nuovo dispositivo.
+    func noteDeviceChanged() {
+        guard !isRecording else { return }
+        stopMonitoring()
+        Task { await startMonitoring() }
     }
 
     // MARK: Registrazione
@@ -67,22 +119,11 @@ final class AudioRecorder {
             return
         }
 
+        stopMonitoring()
+
         do {
             let input = engine.inputNode
-
-            // Instrada il motore verso l'interfaccia selezionata.
-            if let device = selectedDevice, let audioUnit = input.audioUnit {
-                var deviceID = device.id
-                let status = AudioUnitSetProperty(
-                    audioUnit,
-                    kAudioOutputUnitProperty_CurrentDevice,
-                    kAudioUnitScope_Global,
-                    0,
-                    &deviceID,
-                    UInt32(MemoryLayout<AudioDeviceID>.size)
-                )
-                guard status == noErr else { throw RecorderError.deviceSelectionFailed(status) }
-            }
+            try configureEngineInput()
 
             let format = input.outputFormat(forBus: 0)
             guard format.channelCount > 0, format.sampleRate > 0 else {
@@ -93,7 +134,7 @@ final class AudioRecorder {
                 .appendingPathComponent("cattura-\(UUID().uuidString).caf")
             let writer = try TapWriter(url: tempURL, format: format)
 
-            input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
                 writer.append(buffer)
             }
 
@@ -109,21 +150,32 @@ final class AudioRecorder {
         } catch {
             cleanupEngine()
             errorMessage = "Impossibile avviare la registrazione: \(error.localizedDescription)"
+            await startMonitoring()
         }
     }
 
-    /// Ferma la registrazione, applica il trim del silenzio (se attivo) e salva il file.
+    /// Ferma la registrazione, applica le elaborazioni scelte e salva il file.
     func stopRecording(
-        filename: String, format: RecordingFormat, outputFolder: URL, trimSilence: Bool
+        filename: String,
+        format: RecordingFormat,
+        outputFolder: URL,
+        trimSilence: Bool,
+        appendBPM: Bool,
+        addClick: Bool,
+        normalize: Bool
     ) async {
         guard isRecording else { return }
 
         isRecording = false
         stopMeter()
         levels = []
+        startDate = nil
 
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+
+        // Qualunque sia l'esito del salvataggio, il monitoraggio riparte.
+        defer { Task { await startMonitoring() } }
 
         guard let writer, let tempURL else { return }
         writer.close()
@@ -141,7 +193,10 @@ final class AudioRecorder {
                     folder: outputFolder,
                     name: name,
                     format: format,
-                    silenceThreshold: trimSilence ? threshold : nil
+                    silenceThreshold: trimSilence ? threshold : nil,
+                    appendBPM: appendBPM,
+                    addClick: addClick,
+                    normalize: normalize
                 )
             }.value
             lastSavedURL = savedURL
@@ -154,6 +209,21 @@ final class AudioRecorder {
     }
 
     // MARK: Utilità
+
+    /// Instrada il nodo d'ingresso del motore verso l'interfaccia selezionata.
+    private func configureEngineInput() throws {
+        guard let device = selectedDevice, let audioUnit = engine.inputNode.audioUnit else { return }
+        var deviceID = device.id
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        guard status == noErr else { throw RecorderError.deviceSelectionFailed(status) }
+    }
 
     private func requestMicrophoneAccess() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -174,14 +244,23 @@ final class AudioRecorder {
     }
 
     private func startMeter() {
+        stopMeter()
         meterTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 50_000_000)
-                guard let self, self.isRecording else { break }
-                if let writer = self.writer {
-                    self.levels = writer.consumePeaks()
+                guard let self else { break }
+                // Il misuratore legge dal tap attivo: registrazione o monitoraggio.
+                guard let source = self.writer ?? self.monitor else { break }
+                let peaks = source.consumePeaks()
+                if self.levels.count != peaks.count {
+                    self.levels = peaks
+                } else {
+                    // Balistica da peak meter: attacco immediato, rilascio
+                    // graduale (≈80 dB/s con tick da 50 ms), per una lettura
+                    // stabile senza sfarfallio.
+                    self.levels = zip(self.levels, peaks).map { max($1, $0 * 0.631) }
                 }
-                if let startDate = self.startDate {
+                if self.isRecording, let startDate = self.startDate {
                     self.elapsed = Date().timeIntervalSince(startDate)
                 }
             }
@@ -199,6 +278,7 @@ final class AudioRecorder {
         engine.inputNode.removeTap(onBus: 0)
         writer?.close()
         writer = nil
+        monitor = nil
         if let tempURL { try? FileManager.default.removeItem(at: tempURL) }
         tempURL = nil
         isRecording = false

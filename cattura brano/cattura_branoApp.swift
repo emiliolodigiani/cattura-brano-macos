@@ -10,7 +10,7 @@ import SwiftUI
 @main
 struct cattura_branoApp: App {
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("Cattura Brano") {
             ContentView()
         }
     }

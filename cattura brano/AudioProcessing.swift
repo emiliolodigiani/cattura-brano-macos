@@ -27,21 +27,31 @@ nonisolated enum RecorderError: LocalizedError {
 /// Riceve i buffer dal tap del motore audio (thread audio in tempo reale) e li
 /// scrive su un file temporaneo. Calcola anche il picco per il misuratore di livello.
 ///
+/// Con `url` a `nil` non scrive nulla e fa solo da misuratore: è la modalità
+/// usata per monitorare il livello d'ingresso prima della registrazione.
+///
 /// È `nonisolated`/`@unchecked Sendable` perché viene invocata dal thread audio,
 /// non dal main actor.
 nonisolated final class TapWriter: @unchecked Sendable {
     private var file: AVAudioFile?
     private let lock = NSLock()
     private var peaks: [Float]
+    /// Ultimo picco valido, restituito quando tra due letture non sono arrivati
+    /// buffer nuovi (il tap consegna a cadenza diversa da quella del misuratore).
+    private var heldPeaks: [Float]
+    private var hasFreshPeaks = false
 
-    init(url: URL, format: AVAudioFormat) throws {
+    init(url: URL?, format: AVAudioFormat) throws {
         peaks = [Float](repeating: 0, count: Int(format.channelCount))
-        file = try AVAudioFile(
-            forWriting: url,
-            settings: format.settings,
-            commonFormat: .pcmFormatFloat32,
-            interleaved: false
-        )
+        heldPeaks = peaks
+        file = try url.map {
+            try AVAudioFile(
+                forWriting: $0,
+                settings: format.settings,
+                commonFormat: .pcmFormatFloat32,
+                interleaved: false
+            )
+        }
     }
 
     /// Aggiunge un buffer al file e aggiorna il picco corrente di ogni canale.
@@ -67,17 +77,22 @@ nonisolated final class TapWriter: @unchecked Sendable {
         for channel in 0..<channels where localPeaks[channel] > peaks[channel] {
             peaks[channel] = localPeaks[channel]
         }
+        hasFreshPeaks = true
         lock.unlock()
     }
 
     /// Restituisce i picchi per canale accumulati dall'ultima lettura e li azzera.
+    /// Se non è arrivato nessun buffer nuovo, ripropone l'ultimo valore valido
+    /// invece di uno zero spurio (che farebbe lampeggiare il misuratore).
     func consumePeaks() -> [Float] {
         lock.lock()
-        defer {
+        defer { lock.unlock() }
+        if hasFreshPeaks {
+            heldPeaks = peaks
             peaks = [Float](repeating: 0, count: peaks.count)
-            lock.unlock()
+            hasFreshPeaks = false
         }
-        return peaks
+        return heldPeaks
     }
 
     /// Chiude il file, assicurando lo scaricamento su disco.
@@ -90,10 +105,18 @@ nonisolated final class TapWriter: @unchecked Sendable {
 /// la esporta nel formato scelto.
 nonisolated enum AudioProcessor {
 
+    /// Picco di destinazione della normalizzazione: −1 dBFS.
+    private static let normalizationPeak: Float = 0.891
+
     /// Rileva i confini non silenziosi ed esporta la regione utile.
     /// - Parameters:
     ///   - silenceThreshold: ampiezza lineare (0…1) sotto cui un campione è
     ///     silenzio; `nil` disattiva il trim e salva l'intera registrazione.
+    ///   - appendBPM: se `true` stima i BPM e li aggiunge al nome del file
+    ///     (solo quando rilevabili con confidenza sufficiente).
+    ///   - addClick: se `true` mixa un click sulle battute rilevate (richiede
+    ///     un tempo rilevabile, come per i BPM).
+    ///   - normalize: se `true` riporta il picco della traccia a −1 dBFS.
     ///   - padding: secondi di margine da mantenere prima/dopo l'audio.
     /// - Returns: l'URL del file salvato.
     static func trimAndExport(
@@ -102,6 +125,9 @@ nonisolated enum AudioProcessor {
         name: String,
         format: RecordingFormat,
         silenceThreshold: Float?,
+        appendBPM: Bool = false,
+        addClick: Bool = false,
+        normalize: Bool = false,
         padding: Double = 0.1
     ) throws -> URL {
         let readFile = try AVAudioFile(forReading: source)
@@ -115,12 +141,13 @@ nonisolated enum AudioProcessor {
             throw RecorderError.invalidFormat
         }
 
-        // Passo 1 — individua il primo e l'ultimo campione sopra la soglia
-        // (solo se il trim del silenzio è attivo).
+        // Passo 1 — analisi: confini non silenziosi (per il trim) e picco
+        // globale (per la normalizzazione), in un'unica lettura.
         var firstNonSilent: AVAudioFramePosition = -1
         var lastNonSilent: AVAudioFramePosition = -1
+        var globalPeak: Float = 0
 
-        if let silenceThreshold {
+        if silenceThreshold != nil || normalize {
             var position: AVAudioFramePosition = 0
             readFile.framePosition = 0
             while true {
@@ -135,7 +162,8 @@ nonisolated enum AudioProcessor {
                             let value = abs(channelData[channel][frame])
                             if value > amplitude { amplitude = value }
                         }
-                        if amplitude > silenceThreshold {
+                        if amplitude > globalPeak { globalPeak = amplitude }
+                        if let silenceThreshold, amplitude > silenceThreshold {
                             let globalFrame = position + AVAudioFramePosition(frame)
                             if firstNonSilent < 0 { firstNonSilent = globalFrame }
                             lastNonSilent = globalFrame
@@ -164,9 +192,30 @@ nonisolated enum AudioProcessor {
         let framesToWrite = endFrame - startFrame
         guard framesToWrite > 0 else { throw RecorderError.emptyRecording }
 
+        // Guadagno di normalizzazione: riporta il picco a −1 dBFS.
+        var gain: Float = 1
+        if normalize, globalPeak > 0 {
+            gain = Self.normalizationPeak / globalPeak
+        }
+
+        // Analisi ritmica sulla stessa regione che verrà esportata.
+        var finalName = name
+        var clickBeats: [AVAudioFramePosition] = []
+        if appendBPM || addClick {
+            let analysis = BeatDetector.analyze(
+                readFile: readFile, startFrame: startFrame, endFrame: endFrame
+            )
+            if appendBPM, let bpm = analysis.bpm {
+                finalName += " - \(Int(bpm.rounded())) BPM"
+            }
+            if addClick {
+                clickBeats = analysis.beats
+            }
+        }
+
         // Passo 2 — scrivi la regione utile nel formato richiesto.
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let outputURL = uniqueURL(folder: folder, name: name, fileExtension: format.fileExtension)
+        let outputURL = uniqueURL(folder: folder, name: finalName, fileExtension: format.fileExtension)
 
         if format.usesLAME {
             try exportMP3(
@@ -175,6 +224,8 @@ nonisolated enum AudioProcessor {
                 startFrame: startFrame,
                 framesToWrite: framesToWrite,
                 chunkSize: chunkSize,
+                gain: gain,
+                clickBeats: clickBeats,
                 sampleRate: sampleRate,
                 channels: channels,
                 bitrateKbps: format.bitrateKbps,
@@ -189,7 +240,8 @@ nonisolated enum AudioProcessor {
             )
             try readRegion(
                 readFile: readFile, buffer: buffer, startFrame: startFrame,
-                framesToWrite: framesToWrite, chunkSize: chunkSize
+                framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain,
+                clickBeats: clickBeats, sampleRate: sampleRate
             ) { chunk in
                 try outputFile.write(from: chunk)
             }
@@ -199,25 +251,80 @@ nonisolated enum AudioProcessor {
     }
 
     /// Legge la regione [startFrame, startFrame+framesToWrite) a blocchi,
-    /// invocando `handle` per ciascun blocco letto.
+    /// applica guadagno ed eventuale click e invoca `handle` per ciascun blocco.
     private static func readRegion(
         readFile: AVAudioFile,
         buffer: AVAudioPCMBuffer,
         startFrame: AVAudioFramePosition,
         framesToWrite: AVAudioFramePosition,
         chunkSize: AVAudioFrameCount,
+        gain: Float = 1,
+        clickBeats: [AVAudioFramePosition] = [],
+        sampleRate: Double = 0,
         handle: (AVAudioPCMBuffer) throws -> Void
     ) throws {
         readFile.framePosition = startFrame
+        var position = startFrame
         var remaining = framesToWrite
         while remaining > 0 {
             let toRead = AVAudioFrameCount(min(AVAudioFramePosition(chunkSize), remaining))
             try readFile.read(into: buffer, frameCount: toRead)
             let framesRead = buffer.frameLength
             if framesRead == 0 { break }
+            if gain != 1, let channelData = buffer.floatChannelData {
+                for channel in 0..<Int(buffer.format.channelCount) {
+                    let samples = channelData[channel]
+                    for frame in 0..<Int(framesRead) { samples[frame] *= gain }
+                }
+            }
+            if !clickBeats.isEmpty {
+                mixClick(
+                    into: buffer, chunkStart: position, beats: clickBeats, sampleRate: sampleRate
+                )
+            }
             try handle(buffer)
+            position += AVAudioFramePosition(framesRead)
             remaining -= AVAudioFramePosition(framesRead)
             if framesRead < toRead { break }
+        }
+    }
+
+    // MARK: Click sulle battute
+
+    /// Parametri del tick: 1 kHz, 30 ms, decadimento esponenziale.
+    private static let clickFrequency = 1000.0
+    private static let clickDuration = 0.03
+    private static let clickDecay = 0.006
+    private static let clickAmplitude: Float = 0.6
+
+    /// Somma un tick a ogni battuta che ricade (anche parzialmente) nel blocco.
+    /// Il click viene aggiunto dopo la normalizzazione, così il suo volume è
+    /// sempre lo stesso; la somma è limitata a ±1 per evitare distorsioni.
+    private static func mixClick(
+        into buffer: AVAudioPCMBuffer,
+        chunkStart: AVAudioFramePosition,
+        beats: [AVAudioFramePosition],
+        sampleRate: Double
+    ) {
+        guard sampleRate > 0, let channelData = buffer.floatChannelData else { return }
+        let frames = Int(buffer.frameLength)
+        let chunkEnd = chunkStart + AVAudioFramePosition(frames)
+        let clickFrames = AVAudioFramePosition(clickDuration * sampleRate)
+        let channels = Int(buffer.format.channelCount)
+
+        for beat in beats {
+            let clickEnd = beat + clickFrames
+            guard beat < chunkEnd, clickEnd > chunkStart else { continue }
+            for frame in max(beat, chunkStart)..<min(clickEnd, chunkEnd) {
+                let time = Double(frame - beat) / sampleRate
+                let tick = Float(sin(2 * .pi * clickFrequency * time) * exp(-time / clickDecay))
+                    * clickAmplitude
+                let index = Int(frame - chunkStart)
+                for channel in 0..<channels {
+                    let mixed = channelData[channel][index] + tick
+                    channelData[channel][index] = min(max(mixed, -1), 1)
+                }
+            }
         }
     }
 
@@ -228,6 +335,8 @@ nonisolated enum AudioProcessor {
         startFrame: AVAudioFramePosition,
         framesToWrite: AVAudioFramePosition,
         chunkSize: AVAudioFrameCount,
+        gain: Float,
+        clickBeats: [AVAudioFramePosition],
         sampleRate: Double,
         channels: AVAudioChannelCount,
         bitrateKbps: Int,
@@ -239,7 +348,8 @@ nonisolated enum AudioProcessor {
         )
         try readRegion(
             readFile: readFile, buffer: buffer, startFrame: startFrame,
-            framesToWrite: framesToWrite, chunkSize: chunkSize
+            framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain,
+            clickBeats: clickBeats, sampleRate: sampleRate
         ) { chunk in
             try encoder.encode(chunk)
         }

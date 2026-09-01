@@ -9,3 +9,4 @@
 //
 
 #import <lame/lame.h>
+#import <aubio/aubio.h>
