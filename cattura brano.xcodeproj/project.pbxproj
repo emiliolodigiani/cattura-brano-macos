@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A58AA1B53046D28F00FFAA31 /* cattura brano */ = {
+		A58AA1B53046D28F00FFAA31 /* Cattura Brano */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A58AA1C13046D29100FFAA31 /* Build configuration list for PBXNativeTarget "cattura brano" */;
+			buildConfigurationList = A58AA1C13046D29100FFAA31 /* Build configuration list for PBXNativeTarget "Cattura Brano" */;
 			buildPhases = (
 				A58AA1B23046D28F00FFAA31 /* Sources */,
 				A58AA1B33046D28F00FFAA31 /* Frameworks */,
@@ -100,7 +100,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A58AA1B53046D28F00FFAA31 /* cattura brano */,
+				A58AA1B53046D28F00FFAA31 /* Cattura Brano */,
 			);
 		};
 /* End PBXProject section */
@@ -265,8 +265,8 @@
 		A58AA1C23046D29100FFAA31 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "cattura brano/cattura brano.entitlements";
 				CODE_SIGN_STYLE = Automatic;
@@ -275,8 +275,8 @@
 				DEVELOPMENT_TEAM = 99V4TJ55YX;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -293,8 +293,8 @@
 				);
 				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = (
-					"/opt/homebrew/opt/lame/lib/libmp3lame.a",
-					"/opt/homebrew/opt/aubio/lib/libaubio.a",
+					/opt/homebrew/opt/lame/lib/libmp3lame.a,
+					/opt/homebrew/opt/aubio/lib/libaubio.a,
 					"-framework",
 					Accelerate,
 				);
@@ -315,8 +315,8 @@
 		A58AA1C33046D29100FFAA31 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "cattura brano/cattura brano.entitlements";
 				CODE_SIGN_STYLE = Automatic;
@@ -325,8 +325,8 @@
 				DEVELOPMENT_TEAM = 99V4TJ55YX;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -343,8 +343,8 @@
 				);
 				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = (
-					"/opt/homebrew/opt/lame/lib/libmp3lame.a",
-					"/opt/homebrew/opt/aubio/lib/libaubio.a",
+					/opt/homebrew/opt/lame/lib/libmp3lame.a,
+					/opt/homebrew/opt/aubio/lib/libaubio.a,
 					"-framework",
 					Accelerate,
 				);
@@ -374,7 +374,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A58AA1C13046D29100FFAA31 /* Build configuration list for PBXNativeTarget "cattura brano" */ = {
+		A58AA1C13046D29100FFAA31 /* Build configuration list for PBXNativeTarget "Cattura Brano" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A58AA1C23046D29100FFAA31 /* Debug */,

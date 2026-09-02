@@ -80,22 +80,27 @@ final class AudioRecorder {
         do {
             try configureEngineInput()
             let input = engine.inputNode
-            let format = input.outputFormat(forBus: 0)
-            guard format.channelCount > 0, format.sampleRate > 0 else { return }
+            let format = try validatedInputFormat(of: input)
 
             let monitor = try TapWriter(url: nil, format: format)
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                monitor.append(buffer)
+            try withObjCExceptionGuard {
+                input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                    monitor.append(buffer)
+                }
+                engine.prepare()
+                try engine.start()
             }
-            engine.prepare()
-            try engine.start()
 
             self.monitor = monitor
             startMeter()
         } catch {
-            // Il monitoraggio è accessorio: se fallisce, il misuratore resta
-            // fermo e l'eventuale errore emerge alla registrazione.
+            // Il monitoraggio è accessorio, ma un ingresso inutilizzabile va
+            // segnalato: spiega perché la barra del livello resta ferma
+            // (senza sovrascrivere un errore di registrazione già mostrato).
             stopMonitoring()
+            if errorMessage == nil {
+                errorMessage = "Ingresso non attivo: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -114,6 +119,7 @@ final class AudioRecorder {
     /// monitoraggio sul nuovo dispositivo.
     func noteDeviceChanged() {
         guard !isRecording else { return }
+        errorMessage = nil
         stopMonitoring()
         Task { await startMonitoring() }
     }
@@ -137,21 +143,20 @@ final class AudioRecorder {
             let input = engine.inputNode
             try configureEngineInput()
 
-            let format = input.outputFormat(forBus: 0)
-            guard format.channelCount > 0, format.sampleRate > 0 else {
-                throw RecorderError.invalidFormat
-            }
+            let format = try validatedInputFormat(of: input)
 
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cattura-\(UUID().uuidString).caf")
             let writer = try TapWriter(url: tempURL, format: format)
 
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                writer.append(buffer)
-            }
+            try withObjCExceptionGuard {
+                input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                    writer.append(buffer)
+                }
 
-            engine.prepare()
-            try engine.start()
+                engine.prepare()
+                try engine.start()
+            }
 
             self.writer = writer
             self.tempURL = tempURL
@@ -328,6 +333,35 @@ final class AudioRecorder {
     }
 
     // MARK: Utilità
+
+    /// Formato con cui installare il tap sul nodo d'ingresso, validato anche
+    /// sul lato hardware. `outputFormat` può restituire un formato in cache
+    /// plausibile (es. 44,1 kHz stereo) anche quando il dispositivo reale è
+    /// inutilizzabile (0 Hz: rotto, o in uso esclusivo da un'altra app):
+    /// in quel caso installTap/start solleverebbero una NSException.
+    private func validatedInputFormat(of input: AVAudioInputNode) throws -> AVAudioFormat {
+        let hardware = input.inputFormat(forBus: 0)
+        let format = input.outputFormat(forBus: 0)
+        guard hardware.sampleRate > 0, hardware.channelCount > 0,
+              format.sampleRate > 0, format.channelCount > 0 else {
+            throw RecorderError.invalidFormat
+        }
+        return format
+    }
+
+    /// Esegue `body` intercettando sia gli errori Swift sia le NSException
+    /// Objective-C di AVAudioEngine. Un'eccezione lasciata correre fin dentro
+    /// AppKit viene "ingoiata" dal ciclo eventi e corrompe lo stato della
+    /// concorrenza Swift, con crash al click successivo: qui diventa invece
+    /// un errore normale, gestito dal chiamante.
+    private func withObjCExceptionGuard(_ body: () throws -> Void) throws {
+        var swiftError: Error?
+        let objcError = CBCatchObjCException {
+            do { try body() } catch { swiftError = error }
+        }
+        if let swiftError { throw swiftError }
+        if let objcError { throw objcError }
+    }
 
     /// Instrada il nodo d'ingresso del motore verso l'interfaccia selezionata.
     private func configureEngineInput() throws {

@@ -18,7 +18,7 @@ nonisolated enum RecorderError: LocalizedError {
         case .deviceSelectionFailed(let status):
             "Impossibile selezionare l'interfaccia audio (codice \(status))."
         case .invalidFormat:
-            "Formato audio dell'interfaccia non valido."
+            "L'interfaccia selezionata non fornisce audio (formato non valido). Potrebbe essere in uso esclusivo da un'altra app: chiudi le app che la usano, scollegala e ricollegala, o riavvia il Mac."
         case .emptyRecording:
             "La registrazione non contiene audio da salvare."
         case .separationFailed(let details):

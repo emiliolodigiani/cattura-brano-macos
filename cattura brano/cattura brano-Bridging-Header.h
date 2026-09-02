@@ -10,3 +10,4 @@
 
 #import <lame/lame.h>
 #import <aubio/aubio.h>
+#import "ObjCExceptionCatcher.h"
