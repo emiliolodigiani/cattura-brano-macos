@@ -280,8 +280,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
-					/opt/homebrew/opt/lame/include,
-					/opt/homebrew/opt/aubio/include,
+					"$(SRCROOT)/ThirdParty/include",
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Cattura Brano";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
@@ -293,8 +292,8 @@
 				);
 				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = (
-					/opt/homebrew/opt/lame/lib/libmp3lame.a,
-					/opt/homebrew/opt/aubio/lib/libaubio.a,
+					"\"$(SRCROOT)/ThirdParty/lib/libmp3lame.a\"",
+					"\"$(SRCROOT)/ThirdParty/lib/libaubio.a\"",
 					"-framework",
 					Accelerate,
 				);
@@ -330,8 +329,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
-					/opt/homebrew/opt/lame/include,
-					/opt/homebrew/opt/aubio/include,
+					"$(SRCROOT)/ThirdParty/include",
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Cattura Brano";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
@@ -343,8 +341,8 @@
 				);
 				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = (
-					/opt/homebrew/opt/lame/lib/libmp3lame.a,
-					/opt/homebrew/opt/aubio/lib/libaubio.a,
+					"\"$(SRCROOT)/ThirdParty/lib/libmp3lame.a\"",
+					"\"$(SRCROOT)/ThirdParty/lib/libaubio.a\"",
 					"-framework",
 					Accelerate,
 				);
