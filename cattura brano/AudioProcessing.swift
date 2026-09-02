@@ -190,6 +190,12 @@ nonisolated enum AudioProcessor {
         // Determina la regione da esportare.
         let startFrame: AVAudioFramePosition
         let endFrame: AVAudioFramePosition
+        // Margine garantito: se la registrazione non contiene abbastanza
+        // silenzio reale ai bordi (es. Registra premuto a brano già partito),
+        // la parte mancante viene generata, così il file non inizia
+        // né finisce mai di colpo.
+        var leadInSilence: AVAudioFramePosition = 0
+        var leadOutSilence: AVAudioFramePosition = 0
         if firstNonSilent < 0 {
             // Trim disattivato o tutto silenzio: conserva l'intera registrazione.
             startFrame = 0
@@ -198,6 +204,8 @@ nonisolated enum AudioProcessor {
             let pad = AVAudioFramePosition(padding * sampleRate)
             startFrame = max(0, firstNonSilent - pad)
             endFrame = min(totalFrames, lastNonSilent + pad + 1)
+            leadInSilence = pad - (firstNonSilent - startFrame)
+            leadOutSilence = pad - (endFrame - 1 - lastNonSilent)
         }
 
         let framesToWrite = endFrame - startFrame
@@ -236,7 +244,9 @@ nonisolated enum AudioProcessor {
                 sampleRate: sampleRate,
                 channels: channels,
                 bitrateKbps: format.bitrateKbps,
-                outputURL: outputURL
+                outputURL: outputURL,
+                leadInSilence: leadInSilence,
+                leadOutSilence: leadOutSilence
             )
         } else {
             let outputFile = try AVAudioFile(
@@ -247,7 +257,8 @@ nonisolated enum AudioProcessor {
             )
             try readRegion(
                 readFile: readFile, buffer: buffer, startFrame: startFrame,
-                framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain
+                framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain,
+                leadInSilence: leadInSilence, leadOutSilence: leadOutSilence
             ) { chunk in
                 try outputFile.write(from: chunk)
             }
@@ -275,7 +286,8 @@ nonisolated enum AudioProcessor {
             )
             try readRegion(
                 readFile: readFile, buffer: buffer, startFrame: startFrame,
-                framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain
+                framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain,
+                leadInSilence: leadInSilence, leadOutSilence: leadOutSilence
             ) { chunk in
                 try copyFile.write(from: chunk)
             }
@@ -344,6 +356,8 @@ nonisolated enum AudioProcessor {
 
     /// Legge la regione [startFrame, startFrame+framesToWrite) a blocchi,
     /// applica guadagno ed eventuale click e invoca `handle` per ciascun blocco.
+    /// `leadInSilence`/`leadOutSilence` premettono/accodano silenzio generato,
+    /// per garantire il margine anche quando la registrazione non lo contiene.
     private static func readRegion(
         readFile: AVAudioFile,
         buffer: AVAudioPCMBuffer,
@@ -353,8 +367,13 @@ nonisolated enum AudioProcessor {
         gain: Float = 1,
         clickBeats: [AVAudioFramePosition] = [],
         sampleRate: Double = 0,
+        leadInSilence: AVAudioFramePosition = 0,
+        leadOutSilence: AVAudioFramePosition = 0,
         handle: (AVAudioPCMBuffer) throws -> Void
     ) throws {
+        try writeSilence(
+            frames: leadInSilence, buffer: buffer, chunkSize: chunkSize, handle: handle
+        )
         readFile.framePosition = startFrame
         var position = startFrame
         var remaining = framesToWrite
@@ -378,6 +397,30 @@ nonisolated enum AudioProcessor {
             position += AVAudioFramePosition(framesRead)
             remaining -= AVAudioFramePosition(framesRead)
             if framesRead < toRead { break }
+        }
+        try writeSilence(
+            frames: leadOutSilence, buffer: buffer, chunkSize: chunkSize, handle: handle
+        )
+    }
+
+    /// Emette `frames` campioni di silenzio a blocchi, riusando `buffer`.
+    private static func writeSilence(
+        frames: AVAudioFramePosition,
+        buffer: AVAudioPCMBuffer,
+        chunkSize: AVAudioFrameCount,
+        handle: (AVAudioPCMBuffer) throws -> Void
+    ) throws {
+        var remaining = frames
+        while remaining > 0 {
+            let count = AVAudioFrameCount(min(AVAudioFramePosition(chunkSize), remaining))
+            buffer.frameLength = count
+            if let channelData = buffer.floatChannelData {
+                for channel in 0..<Int(buffer.format.channelCount) {
+                    channelData[channel].update(repeating: 0, count: Int(count))
+                }
+            }
+            try handle(buffer)
+            remaining -= AVAudioFramePosition(count)
         }
     }
 
@@ -432,7 +475,9 @@ nonisolated enum AudioProcessor {
         sampleRate: Double,
         channels: AVAudioChannelCount,
         bitrateKbps: Int,
-        outputURL: URL
+        outputURL: URL,
+        leadInSilence: AVAudioFramePosition = 0,
+        leadOutSilence: AVAudioFramePosition = 0
     ) throws {
         #if LAME_ENABLED
         let encoder = try MP3Encoder(
@@ -441,7 +486,8 @@ nonisolated enum AudioProcessor {
         try readRegion(
             readFile: readFile, buffer: buffer, startFrame: startFrame,
             framesToWrite: framesToWrite, chunkSize: chunkSize, gain: gain,
-            clickBeats: clickBeats, sampleRate: sampleRate
+            clickBeats: clickBeats, sampleRate: sampleRate,
+            leadInSilence: leadInSilence, leadOutSilence: leadOutSilence
         ) { chunk in
             try encoder.encode(chunk)
         }

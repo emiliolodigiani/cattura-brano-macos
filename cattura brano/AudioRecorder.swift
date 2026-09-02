@@ -31,8 +31,19 @@ final class AudioRecorder {
     private(set) var lastSavedURL: URL?
     var errorMessage: String?
 
-    /// Soglia di silenzio lineare (≈ -50 dBFS) usata per il trim.
-    private let silenceThreshold: Float = 0.00316
+    /// Soglia di silenzio lineare usata per il trim, dalle Impostazioni (⌘,).
+    /// Il valore è salvato in dBFS (default −50 ≈ 0.00316 lineare).
+    private var silenceThreshold: Float {
+        let db = UserDefaults.standard.object(forKey: "silenceThresholdDB") as? Int ?? -50
+        return pow(10, Float(db) / 20)
+    }
+
+    /// Secondi di silenzio garantiti prima e dopo il brano dal trim,
+    /// dalle Impostazioni (salvati in decimi di secondo, default 0,5 s).
+    private var silencePadding: Double {
+        let tenths = UserDefaults.standard.object(forKey: "silencePaddingTenths") as? Int ?? 5
+        return Double(tenths) / 10
+    }
 
     // MARK: Stato interno
 
@@ -262,6 +273,7 @@ final class AudioRecorder {
         normalize: Bool
     ) async {
         let threshold = silenceThreshold
+        let padding = silencePadding
         let wantsExtras = addClick || separateDrums
 
         isSaving = true
@@ -276,7 +288,8 @@ final class AudioRecorder {
                     silenceThreshold: trimSilence ? threshold : nil,
                     appendBPM: appendBPM,
                     normalize: normalize,
-                    prepareProcessedCopy: wantsExtras
+                    prepareProcessedCopy: wantsExtras,
+                    padding: padding
                 )
             }.value
             lastSavedURL = result.savedURL
