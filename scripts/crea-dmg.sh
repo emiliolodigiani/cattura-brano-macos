@@ -10,11 +10,24 @@ set -euo pipefail
 
 APP="${1:?Indica il percorso di \"Cattura Brano.app\"}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
-OUT="$(dirname "$APP")/Cattura Brano.dmg"
+
+# Versione e numero di build letti dall'app, per il nome del file:
+# "Cattura Brano 1.1 (20).dmg".
+PLIST="$APP/Contents/Info.plist"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null || true)"
+BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" 2>/dev/null || true)"
+NAME="Cattura Brano"
+VOLNAME="Cattura Brano"
+if [ -n "$VERSION" ]; then
+  NAME="$NAME $VERSION"
+  VOLNAME="$VOLNAME $VERSION"
+  [ -n "$BUILD" ] && NAME="$NAME ($BUILD)"
+fi
+OUT="$(dirname "$APP")/$NAME.dmg"
 
 rm -f "$OUT"
 create-dmg \
-  --volname "Cattura Brano" \
+  --volname "$VOLNAME" \
   --background "$DIR/dmg-sfondo.png" \
   --window-size 660 400 \
   --icon-size 128 \
