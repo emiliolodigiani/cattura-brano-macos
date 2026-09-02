@@ -21,7 +21,11 @@ VOLNAME="Cattura Brano"
 if [ -n "$VERSION" ]; then
   NAME="$NAME $VERSION"
   VOLNAME="$VOLNAME $VERSION"
-  [ -n "$BUILD" ] && NAME="$NAME ($BUILD)"
+  # Il numero di build va aggiunto solo se la versione non lo contiene già
+  # (lo schema attuale produce versioni tipo "1.1.26" con progressivo incluso).
+  if [ -n "$BUILD" ] && [ "${VERSION##*.}" != "$BUILD" ]; then
+    NAME="$NAME ($BUILD)"
+  fi
 fi
 OUT="$(dirname "$APP")/$NAME.dmg"
 
