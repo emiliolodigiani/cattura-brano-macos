@@ -10,6 +10,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("demucsModel") private var demucsModel = "htdemucs"
     @AppStorage("demucsShifts") private var demucsShifts = 1
+    @AppStorage("drumsBackgroundDB") private var drumsBackgroundDB = -12
     @AppStorage("silenceThresholdDB") private var silenceThresholdDB = -50
     @AppStorage("silencePaddingTenths") private var silencePaddingTenths = 5
 
@@ -59,6 +60,17 @@ struct SettingsView: View {
                 } label: {
                     Text("Passate di analisi")
                     Text("Più passate mediano il risultato e riducono gli artefatti; ogni passata in più allunga i tempi in proporzione. Il guadagno cala oltre 2–3.")
+                }
+
+                Picker(selection: $drumsBackgroundDB) {
+                    Text("Nessuno · solo batteria").tag(-100)
+                    Text("−18 dB · appena percettibile").tag(-18)
+                    Text("−12 dB · standard").tag(-12)
+                    Text("−9 dB · presente").tag(-9)
+                    Text("−6 dB · ben udibile").tag(-6)
+                } label: {
+                    Text("Sottofondo della traccia batteria")
+                    Text("Volume del resto del brano sotto la batteria nella copia \"(batteria)\". Con \"Nessuno\" la traccia contiene la sola batteria separata.")
                 }
             }
 

@@ -354,6 +354,70 @@ nonisolated enum AudioProcessor {
         return outputURL
     }
 
+    /// Mixa `main` a volume pieno con `background` attenuato di
+    /// `backgroundGain` (lineare), in un WAV float temporaneo che il
+    /// chiamante deve eliminare. I due file devono avere lo stesso formato
+    /// (è il caso degli stem di demucs, generati dalla stessa sorgente).
+    /// Usato per la traccia "(batteria)": batteria in primo piano e resto
+    /// del brano di sottofondo.
+    static func mixFiles(main: URL, background: URL, backgroundGain: Float) throws -> URL {
+        let mainFile = try AVAudioFile(forReading: main)
+        let backgroundFile = try AVAudioFile(forReading: background)
+        let processingFormat = mainFile.processingFormat
+        guard backgroundFile.processingFormat.sampleRate == processingFormat.sampleRate,
+              backgroundFile.processingFormat.channelCount == processingFormat.channelCount
+        else { throw RecorderError.separationFailed("gli stem hanno formati diversi") }
+
+        let chunkSize: AVAudioFrameCount = 65_536
+        guard let mainBuffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: chunkSize),
+              let backgroundBuffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: chunkSize)
+        else { throw RecorderError.invalidFormat }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cattura-batteria-\(UUID().uuidString).wav")
+        let outputFile = try AVAudioFile(
+            forWriting: outputURL,
+            settings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: processingFormat.sampleRate,
+                AVNumberOfChannelsKey: Int(processingFormat.channelCount),
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false,
+            ],
+            commonFormat: .pcmFormatFloat32,
+            interleaved: false
+        )
+
+        let channels = Int(processingFormat.channelCount)
+        var remaining = mainFile.length
+        while remaining > 0 {
+            let toRead = AVAudioFrameCount(min(AVAudioFramePosition(chunkSize), remaining))
+            try mainFile.read(into: mainBuffer, frameCount: toRead)
+            let frames = Int(mainBuffer.frameLength)
+            if frames == 0 { break }
+            // Il sottofondo può finire qualche frame prima: la coda resta a zero.
+            backgroundBuffer.frameLength = 0
+            try? backgroundFile.read(into: backgroundBuffer, frameCount: AVAudioFrameCount(frames))
+            if let mainData = mainBuffer.floatChannelData,
+               let backgroundData = backgroundBuffer.floatChannelData {
+                let backgroundFrames = Int(backgroundBuffer.frameLength)
+                for channel in 0..<channels {
+                    for frame in 0..<min(frames, backgroundFrames) {
+                        let mixed = mainData[channel][frame]
+                            + backgroundData[channel][frame] * backgroundGain
+                        mainData[channel][frame] = min(max(mixed, -1), 1)
+                    }
+                }
+            }
+            try outputFile.write(from: mainBuffer)
+            remaining -= AVAudioFramePosition(frames)
+            if frames < Int(toRead) { break }
+        }
+        return outputURL
+    }
+
     /// Legge la regione [startFrame, startFrame+framesToWrite) a blocchi,
     /// applica guadagno ed eventuale click e invoca `handle` per ciascun blocco.
     /// `leadInSilence`/`leadOutSilence` premettono/accodano silenzio generato,

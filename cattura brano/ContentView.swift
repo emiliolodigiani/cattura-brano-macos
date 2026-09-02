@@ -20,6 +20,7 @@ struct ContentView: View {
     @AppStorage("appendBPM") private var appendBPM = true
     @AppStorage("addClick") private var addClick = false
     @AppStorage("separateDrums") private var separateDrums = false
+    @AppStorage("drumsTrack") private var drumsTrack = false
     @AppStorage("normalizeLevel") private var normalizeLevel = false
 
     private var format: RecordingFormat {
@@ -107,6 +108,11 @@ struct ContentView: View {
                         Toggle(isOn: $separateDrums) {
                             Text("Genera la traccia senza batteria")
                             Text("Separa gli stem con demucs e salva una copia \"(drumless)\"; con il click attivo anche \"(drumless click)\".")
+                        }
+
+                        Toggle(isOn: $drumsTrack) {
+                            Text("Genera la traccia batteria")
+                            Text("Salva una copia \"(batteria)\": batteria in primo piano, resto del brano di sottofondo. Il volume del sottofondo si regola nelle Impostazioni (con \"Nessuno\" resta la sola batteria).")
                         }
                     } else {
                         demucsInstallRow
@@ -316,6 +322,7 @@ struct ContentView: View {
                     appendBPM: appendBPM,
                     addClick: addClick,
                     separateDrums: separateDrums,
+                    drumsTrack: drumsTrack,
                     normalize: normalizeLevel
                 )
             }
@@ -346,6 +353,7 @@ struct ContentView: View {
                 appendBPM: appendBPM,
                 addClick: addClick,
                 separateDrums: separateDrums,
+                drumsTrack: drumsTrack,
                 normalize: normalizeLevel
             )
         }

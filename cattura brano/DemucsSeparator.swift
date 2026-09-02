@@ -83,7 +83,8 @@ nonisolated enum DemucsSeparator {
             drums: stemFolder.appendingPathComponent("drums.wav"),
             noDrums: stemFolder.appendingPathComponent("no_drums.wav")
         )
-        guard FileManager.default.fileExists(atPath: stems.noDrums.path) else {
+        guard FileManager.default.fileExists(atPath: stems.noDrums.path),
+              FileManager.default.fileExists(atPath: stems.drums.path) else {
             throw RecorderError.separationFailed("demucs non ha prodotto gli stem attesi")
         }
         return stems
@@ -135,21 +136,30 @@ nonisolated enum AudioPostProcessor {
     ///     normalizzata (senza click); viene eliminato al termine.
     ///   - baseName: nome del file principale già salvato (senza estensione).
     /// - Returns: gli URL dei file creati.
+    /// Volume lineare del resto del brano sotto la batteria nella traccia
+    /// "(batteria)", dalle Impostazioni (in dB, default −12; ≤ −100 = niente
+    /// sottofondo, solo batteria).
+    private static var drumsBackgroundGain: Float {
+        let db = UserDefaults.standard.object(forKey: "drumsBackgroundDB") as? Int ?? -12
+        return db <= -100 ? 0 : pow(10, Float(db) / 20)
+    }
+
     static func run(
         processedWAV: URL,
         folder: URL,
         baseName: String,
         format: RecordingFormat,
         addClick: Bool,
-        separateDrums: Bool
+        separateDrums: Bool,
+        drumsTrack: Bool
     ) throws -> [URL] {
         defer { try? FileManager.default.removeItem(at: processedWAV) }
 
-        // Separazione stem: serve per la traccia drumless e, quando
+        // Separazione stem: serve per le tracce drumless e batteria e, quando
         // disponibile, anche per un beat tracking più preciso del click.
         var stems: DemucsSeparator.Stems?
         var workDir: URL?
-        if DemucsSeparator.isAvailable, separateDrums || addClick {
+        if DemucsSeparator.isAvailable, separateDrums || drumsTrack || addClick {
             let dir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("demucs-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -188,6 +198,25 @@ nonisolated enum AudioPostProcessor {
                 outputs.append(try AudioProcessor.exportProcessed(
                     source: stems.noDrums, folder: folder, name: "\(baseName) (drumless click)",
                     format: format, clickBeatsSeconds: beatsSeconds
+                ))
+            }
+        }
+        if drumsTrack, let stems {
+            let gain = drumsBackgroundGain
+            if gain > 0 {
+                // Batteria in primo piano, resto del brano di sottofondo.
+                let mixURL = try AudioProcessor.mixFiles(
+                    main: stems.drums, background: stems.noDrums, backgroundGain: gain
+                )
+                defer { try? FileManager.default.removeItem(at: mixURL) }
+                outputs.append(try AudioProcessor.exportProcessed(
+                    source: mixURL, folder: folder, name: "\(baseName) (batteria)",
+                    format: format, clickBeatsSeconds: []
+                ))
+            } else {
+                outputs.append(try AudioProcessor.exportProcessed(
+                    source: stems.drums, folder: folder, name: "\(baseName) (solo batteria)",
+                    format: format, clickBeatsSeconds: []
                 ))
             }
         }

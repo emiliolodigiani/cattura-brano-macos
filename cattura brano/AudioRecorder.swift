@@ -191,6 +191,7 @@ final class AudioRecorder {
         appendBPM: Bool,
         addClick: Bool,
         separateDrums: Bool,
+        drumsTrack: Bool,
         normalize: Bool
     ) async {
         guard isRecording else { return }
@@ -221,6 +222,7 @@ final class AudioRecorder {
             appendBPM: appendBPM,
             addClick: addClick,
             separateDrums: separateDrums,
+            drumsTrack: drumsTrack,
             normalize: normalize
         )
     }
@@ -237,6 +239,7 @@ final class AudioRecorder {
         appendBPM: Bool,
         addClick: Bool,
         separateDrums: Bool,
+        drumsTrack: Bool,
         normalize: Bool
     ) async {
         guard !isRecording, !isSaving, !isPostProcessing else { return }
@@ -255,6 +258,7 @@ final class AudioRecorder {
             appendBPM: appendBPM,
             addClick: addClick,
             separateDrums: separateDrums,
+            drumsTrack: drumsTrack,
             normalize: normalize
         )
     }
@@ -270,11 +274,12 @@ final class AudioRecorder {
         appendBPM: Bool,
         addClick: Bool,
         separateDrums: Bool,
+        drumsTrack: Bool,
         normalize: Bool
     ) async {
         let threshold = silenceThreshold
         let padding = silencePadding
-        let wantsExtras = addClick || separateDrums
+        let wantsExtras = addClick || separateDrums || drumsTrack
 
         isSaving = true
         var exportResult: ExportResult?
@@ -308,7 +313,8 @@ final class AudioRecorder {
                 folder: outputFolder,
                 format: format,
                 addClick: addClick,
-                separateDrums: separateDrums
+                separateDrums: separateDrums,
+                drumsTrack: drumsTrack
             )
         }
     }
@@ -320,7 +326,8 @@ final class AudioRecorder {
         folder: URL,
         format: RecordingFormat,
         addClick: Bool,
-        separateDrums: Bool
+        separateDrums: Bool,
+        drumsTrack: Bool
     ) async {
         isPostProcessing = true
         let baseName = savedURL.deletingPathExtension().lastPathComponent
@@ -332,7 +339,8 @@ final class AudioRecorder {
                     baseName: baseName,
                     format: format,
                     addClick: addClick,
-                    separateDrums: separateDrums
+                    separateDrums: separateDrums,
+                    drumsTrack: drumsTrack
                 )
             }.value
             extraFiles = outputs
