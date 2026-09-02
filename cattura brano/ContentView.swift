@@ -183,7 +183,25 @@ struct ContentView: View {
 
     // MARK: Barra di registrazione (livello, tempo, comando)
 
+    @ViewBuilder
     private var recordingBar: some View {
+        // Scheda flottante staccata dai bordi: vetro "liquid glass" su
+        // macOS 26, materiale traslucido classico sulle versioni precedenti
+        // (dove l'API glassEffect non esiste).
+        if #available(macOS 26.0, *) {
+            recordingBarContent
+                .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        } else {
+            recordingBarContent
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(.separator, lineWidth: 1)
+                )
+        }
+    }
+
+    private var recordingBarContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Label("Livello", systemImage: "waveform")
@@ -226,10 +244,6 @@ struct ContentView: View {
             }
         }
         .padding(20)
-        // Scheda flottante in vetro, staccata dai bordi: il contenuto del
-        // modulo scorre visibilmente dietro e intorno, come nei pannelli
-        // di sistema di macOS 26.
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
     }
 
     // MARK: Stato / esiti

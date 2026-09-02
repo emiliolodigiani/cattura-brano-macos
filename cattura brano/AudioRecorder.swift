@@ -71,6 +71,11 @@ final class AudioRecorder {
         // Senza permesso non mostriamo errori: il messaggio arriva solo
         // quando l'utente prova davvero a registrare.
         guard await requestMicrophoneAccess() else { return }
+        // La risposta al permesso può arrivare molto dopo (finestra di sistema
+        // al primo avvio): nel frattempo l'utente può aver premuto Registra.
+        // Senza questo ricontrollo si installerebbe un secondo tap sul bus già
+        // occupato, e AVAudioEngine abbatte l'app con una NSException.
+        guard !isRecording, monitor == nil else { return }
 
         do {
             try configureEngineInput()
@@ -95,7 +100,9 @@ final class AudioRecorder {
     }
 
     private func stopMonitoring() {
-        guard monitor != nil else { return }
+        // Nessuna guardia su `monitor`: se l'avvio del monitoraggio fallisce
+        // dopo installTap, il tap resta installato con `monitor` ancora nil,
+        // e va comunque rimosso (removeTap è innocuo se non c'è alcun tap).
         engine.inputNode.removeTap(onBus: 0)
         if engine.isRunning { engine.stop() }
         monitor = nil
