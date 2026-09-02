@@ -129,7 +129,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Numero di build = numero di commit git: cresce a ogni commit.\nBUILD_NUMBER=$(cd \"${SRCROOT}\" && git rev-list --count HEAD 2>/dev/null || echo 1)\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nif [ -f \"$PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion ${BUILD_NUMBER}\" \"$PLIST\"\nfi\n";
+			shellScript = "# Progressivo = numero di commit git: cresce a ogni modifica.\n# Versione mostrata = MARKETING_VERSION.progressivo (es. 1.1.25);\n# lo stesso progressivo fa anche da numero di build.\nBUILD_NUMBER=$(cd \"${SRCROOT}\" && git rev-list --count HEAD 2>/dev/null || echo 1)\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nif [ -f \"$PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion ${BUILD_NUMBER}\" \"$PLIST\"\n  /usr/libexec/PlistBuddy -c \"Set :CFBundleShortVersionString ${MARKETING_VERSION}.${BUILD_NUMBER}\" \"$PLIST\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
