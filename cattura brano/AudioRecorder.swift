@@ -334,19 +334,20 @@ final class AudioRecorder {
 
     // MARK: Utilità
 
-    /// Formato con cui installare il tap sul nodo d'ingresso, validato anche
-    /// sul lato hardware. `outputFormat` può restituire un formato in cache
-    /// plausibile (es. 44,1 kHz stereo) anche quando il dispositivo reale è
-    /// inutilizzabile (0 Hz: rotto, o in uso esclusivo da un'altra app):
-    /// in quel caso installTap/start solleverebbero una NSException.
+    /// Formato con cui installare il tap sul nodo d'ingresso: quello REALE
+    /// dell'hardware (`inputFormat`), mai quello del bus di uscita
+    /// (`outputFormat`), che dopo un cambio di interfaccia può restare in
+    /// cache col formato del dispositivo precedente (es. 44,1 kHz quando il
+    /// microfono integrato lavora a 48 kHz) e far fallire installTap con
+    /// "Failed to create tap due to format mismatch". Un formato hardware
+    /// a 0 Hz/0 canali indica un dispositivo inutilizzabile (rotto o in uso
+    /// esclusivo altrove): meglio un errore chiaro che una NSException.
     private func validatedInputFormat(of input: AVAudioInputNode) throws -> AVAudioFormat {
         let hardware = input.inputFormat(forBus: 0)
-        let format = input.outputFormat(forBus: 0)
-        guard hardware.sampleRate > 0, hardware.channelCount > 0,
-              format.sampleRate > 0, format.channelCount > 0 else {
+        guard hardware.sampleRate > 0, hardware.channelCount > 0 else {
             throw RecorderError.invalidFormat
         }
-        return format
+        return hardware
     }
 
     /// Esegue `body` intercettando sia gli errori Swift sia le NSException
@@ -376,6 +377,10 @@ final class AudioRecorder {
             UInt32(MemoryLayout<AudioDeviceID>.size)
         )
         guard status == noErr else { throw RecorderError.deviceSelectionFailed(status) }
+        // Scarta i formati che il motore tiene in cache dal dispositivo
+        // precedente: senza reset, inputFormat/outputFormat possono riferirsi
+        // alla vecchia interfaccia e il tap fallirebbe per formato discordante.
+        engine.reset()
     }
 
     private func requestMicrophoneAccess() async -> Bool {
