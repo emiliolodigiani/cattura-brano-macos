@@ -52,3 +52,8 @@ Verifica dopo una ricompilazione:
 otool -l lib/libaubio.a | grep -E "minos|platform" | sort -u   # minos 14.0
 nm -u lib/libaubio.a | grep -iE "fftw|sndfile|avcodec"          # niente
 ```
+
+## Licenze
+
+- LAME 3.100: GNU Library GPL v2 — testo in `COPYING.lame.txt`.
+- aubio 0.4.9: GNU GPL v3 — testo in `COPYING.aubio.txt`.
