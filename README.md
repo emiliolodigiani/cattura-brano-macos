@@ -28,18 +28,21 @@ dell'app e per qualsiasi danno o conseguenza derivante dal suo uso.
 
 ## Licenza
 
-Il codice del progetto è distribuito con licenza [MIT](LICENSE): il
+© 2026 Emilio Lodigiani. Distribuita con licenza
+[GNU GPL v3](LICENSE): software libero — chiunque può usarlo,
+studiarlo, modificarlo e ridistribuirlo, ma le versioni ridistribuite
+devono restare libere sotto la stessa licenza, sorgenti compresi. Il
 software è fornito «così com'è», **senza garanzie di alcun tipo**,
 espresse o implicite, e l'uso è a esclusivo rischio di chi lo utilizza.
 
-L'app incorpora staticamente due librerie di terze parti (dettagli e
-istruzioni di ricompilazione in [`ThirdParty/`](ThirdParty/README.md)):
+L'app incorpora staticamente due librerie di terze parti, entrambe
+compatibili con la GPL v3 (dettagli e istruzioni di ricompilazione in
+[`ThirdParty/`](ThirdParty/README.md)):
 
 - **LAME 3.100** — GNU Library GPL v2
   ([testo](ThirdParty/COPYING.lame.txt));
 - **aubio 0.4.9** — GNU GPL v3
   ([testo](ThirdParty/COPYING.aubio.txt)).
 
-Includendo aubio, **il binario distribuito è nel suo complesso soggetto
-ai termini della GPL v3**. Demucs è invece uno strumento esterno
-(licenza MIT), installato a parte e non incorporato nell'app.
+Demucs è uno strumento esterno (licenza MIT), installato a parte e non
+incorporato nell'app.
