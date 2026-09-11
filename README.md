@@ -21,9 +21,10 @@ Il progetto si apre con Xcode 16 o successivo. Il rilascio è tutto in
 firmata con Developer ID, notarizza app e DMG, verifica con Gatekeeper e
 pubblica la release su GitHub con il DMG allegato. Servono `create-dmg` e
 `gh` da Homebrew e, una volta sola, un profilo di credenziali per la
-notarizzazione:
+notarizzazione nel portachiavi, da una chiave API di App Store Connect
+(ruolo Developer):
 
-    xcrun notarytool store-credentials "cattura-brano" --apple-id <Apple ID> --team-id 99V4TJ55YX
+    xcrun notarytool store-credentials "notarizzazione" --key ~/.appstoreconnect/private_keys/AuthKey_<ID>.p8 --key-id <ID chiave> --issuer <ID emittente>
 
 Con `--prova` lo script si ferma al DMG, senza notarizzare né pubblicare:
 utile per controllare la compilazione. La versione è `1.1.N` con `N` pari

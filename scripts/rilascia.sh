@@ -17,11 +17,14 @@
 # Prerequisiti:
 #   - Xcode con l'account Apple Developer collegato (Xcode › Settings › Accounts);
 #   - create-dmg e gh da Homebrew, con gh autenticato (gh auth login);
-#   - un profilo di credenziali per notarytool, da creare una volta sola:
-#       xcrun notarytool store-credentials "cattura-brano" \
-#         --apple-id <Apple ID> --team-id 99V4TJ55YX
-#     (la password richiesta è una "password specifica per le app", da
-#     creare su https://account.apple.com › Accesso e sicurezza).
+#   - un profilo di credenziali per notarytool nel portachiavi, da creare una
+#     volta sola con una chiave API di App Store Connect (ruolo Developer,
+#     file .p8 conservato in ~/.appstoreconnect/private_keys/):
+#       xcrun notarytool store-credentials "notarizzazione" \
+#         --key ~/.appstoreconnect/private_keys/AuthKey_<ID>.p8 \
+#         --key-id <ID chiave> --issuer <ID emittente>
+#     (in alternativa: --apple-id <Apple ID> --team-id 99V4TJ55YX, con una
+#     "password specifica per le app" creata su https://account.apple.com).
 #
 # La versione (1.1.N, con N = numero di commit) è calcolata dal progetto in
 # fase di compilazione: per questo il rilascio parte solo da un albero git
@@ -35,7 +38,7 @@ ROOT="$(cd "$DIR/.." && pwd)"
 PROGETTO="$ROOT/cattura brano.xcodeproj"
 SCHEMA="Cattura Brano"
 TEAM_ID="99V4TJ55YX"
-PROFILO_NOTARIZZAZIONE="cattura-brano"
+PROFILO_NOTARIZZAZIONE="notarizzazione"
 DIST="$ROOT/dist"
 
 PROVA=0
@@ -67,9 +70,9 @@ if [ "$PROVA" -eq 0 ]; then
   [ -z "$(git -C "$ROOT" status --porcelain)" ] \
     || errore "L'albero git non è pulito: committa o scarta le modifiche (la versione deriva dai commit)."
   if ! xcrun notarytool history --keychain-profile "$PROFILO_NOTARIZZAZIONE" >/dev/null 2>&1; then
-    errore "Manca il profilo notarytool \"$PROFILO_NOTARIZZAZIONE\" (o le credenziali non sono valide). Crealo una volta sola con:
-  xcrun notarytool store-credentials \"$PROFILO_NOTARIZZAZIONE\" --apple-id <Apple ID> --team-id $TEAM_ID
-La password da inserire è una \"password specifica per le app\", da creare su https://account.apple.com › Accesso e sicurezza."
+    errore "Manca il profilo notarytool \"$PROFILO_NOTARIZZAZIONE\" (o le credenziali non sono valide). Crealo una volta sola con una chiave API di App Store Connect:
+  xcrun notarytool store-credentials \"$PROFILO_NOTARIZZAZIONE\" --key ~/.appstoreconnect/private_keys/AuthKey_<ID>.p8 --key-id <ID chiave> --issuer <ID emittente>
+(oppure con --apple-id <Apple ID> --team-id $TEAM_ID e una \"password specifica per le app\"; vedi l'intestazione dello script)."
   fi
 fi
 
