@@ -14,6 +14,23 @@ Il DMG notarizzato si scarica dalla pagina delle
 aprirlo e trascinare l'app in Applicazioni. La separazione degli stem
 richiede Demucs, che l'app propone di installare al primo uso.
 
+## Compilazione e rilascio
+
+Il progetto si apre con Xcode 16 o successivo. Il rilascio è tutto in
+[`scripts/rilascia.sh`](scripts/rilascia.sh): archivia, esporta l'app
+firmata con Developer ID, notarizza app e DMG, verifica con Gatekeeper e
+pubblica la release su GitHub con il DMG allegato. Servono `create-dmg` e
+`gh` da Homebrew e, una volta sola, un profilo di credenziali per la
+notarizzazione:
+
+    xcrun notarytool store-credentials "cattura-brano" --apple-id <Apple ID> --team-id 99V4TJ55YX
+
+Con `--prova` lo script si ferma al DMG, senza notarizzare né pubblicare:
+utile per controllare la compilazione. La versione è `1.1.N` con `N` pari
+al numero di commit, quindi il rilascio parte solo da un albero git pulito.
+Chi preferisce l'Organizer di Xcode può esportare l'app da lì e creare il
+DMG con il droplet "Crea DMG" (che usa `scripts/crea-dmg.sh`).
+
 ## Uso responsabile
 
 Usa l'app **sempre nel rispetto della legge**. La musica è protetta dal
