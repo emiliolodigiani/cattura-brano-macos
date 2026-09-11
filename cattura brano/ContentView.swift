@@ -268,8 +268,22 @@ struct ContentView: View {
         if recorder.isPostProcessing {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Generazione delle tracce aggiuntive… (può richiedere qualche minuto)")
-                    .foregroundStyle(.secondary)
+                Text(
+                    recorder.isCancellingPostProcessing
+                        ? "Interruzione in corso…"
+                        : "Generazione delle tracce aggiuntive… (può richiedere qualche minuto)"
+                )
+                .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("Interrompi") {
+                    recorder.cancelPostProcessing()
+                }
+                .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
+                .disabled(recorder.isCancellingPostProcessing)
+                .help("Ferma la generazione delle tracce aggiuntive; il file principale è già salvato e le tracce già pronte restano.")
             }
             .font(.callout)
         }
@@ -296,6 +310,15 @@ struct ContentView: View {
                     .truncationMode(.middle)
             }
             .font(.callout)
+        }
+
+        if recorder.postProcessingInterrupted {
+            HStack(spacing: 8) {
+                Image(systemName: "stop.circle.fill").foregroundStyle(.secondary)
+                Text("Generazione delle tracce aggiuntive interrotta.")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
         }
 
         if let message = recorder.errorMessage {

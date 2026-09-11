@@ -49,7 +49,9 @@ nonisolated enum DemucsSeparator {
 
     /// Esegue demucs in modalità due stem (batteria / resto) su `source`,
     /// scrivendo dentro `workDir` (creata e poi eliminata dal chiamante).
-    static func separate(source: URL, workDir: URL) throws -> Stems {
+    /// Se il task viene annullato, demucs viene terminato e la funzione
+    /// lancia `CancellationError`.
+    static func separate(source: URL, workDir: URL) async throws -> Stems {
         guard let executable = executableURL else {
             throw RecorderError.separationFailed("demucs non è installato")
         }
@@ -70,8 +72,7 @@ nonisolated enum DemucsSeparator {
         // il processo si blocca in scrittura e non termina mai.
         let errorOutput = drainingErrorPipe(for: process)
         process.standardOutput = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
+        try await runUntilExit(process)
 
         guard process.terminationStatus == 0 else {
             throw RecorderError.separationFailed(String(errorOutput.text().suffix(300)))
@@ -127,15 +128,72 @@ nonisolated func drainingErrorPipe(for process: Process) -> ProcessErrorBuffer {
     return buffer
 }
 
+/// Avvia `process` e ne attende l'uscita senza bloccare un thread. Se il
+/// task viene annullato, il processo riceve SIGTERM e, una volta uscito, la
+/// funzione lancia `CancellationError` (non un errore sul codice di uscita).
+nonisolated func runUntilExit(_ process: Process) async throws {
+    let state = ProcessRunState(process)
+    try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            process.terminationHandler = { _ in
+                state.markFinished()
+                continuation.resume()
+            }
+            do {
+                try process.run()
+                state.markLaunched()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    } onCancel: {
+        state.cancel()
+    }
+    try Task.checkCancellation()
+}
+
+/// Decide se e quando inviare SIGTERM a un processo lanciato con
+/// `runUntilExit`: mai prima del lancio (Process solleverebbe un'eccezione)
+/// né dopo l'uscita; se l'annullamento arriva mentre il lancio è in corso,
+/// il segnale parte subito dopo. Thread-safe.
+private nonisolated final class ProcessRunState: @unchecked Sendable {
+    private let process: Process
+    private let lock = NSLock()
+    private var launched = false
+    private var finished = false
+    private var cancelRequested = false
+
+    init(_ process: Process) {
+        self.process = process
+    }
+
+    func markLaunched() {
+        lock.lock()
+        launched = true
+        let terminate = cancelRequested && !finished
+        lock.unlock()
+        if terminate { process.terminate() }
+    }
+
+    func markFinished() {
+        lock.lock()
+        finished = true
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelRequested = true
+        let terminate = launched && !finished
+        lock.unlock()
+        if terminate { process.terminate() }
+    }
+}
+
 /// Genera le tracce aggiuntive dopo il salvataggio: "(click)", "(drumless)"
 /// e "(drumless click)", a seconda delle opzioni attive.
 nonisolated enum AudioPostProcessor {
 
-    /// - Parameters:
-    ///   - processedWAV: WAV temporaneo con la regione già rifilata e
-    ///     normalizzata (senza click); viene eliminato al termine.
-    ///   - baseName: nome del file principale già salvato (senza estensione).
-    /// - Returns: gli URL dei file creati.
     /// Volume lineare del resto del brano sotto la batteria nella traccia
     /// "(batteria)", dalle Impostazioni (in dB, default −12; ≤ −100 = niente
     /// sottofondo, solo batteria).
@@ -144,6 +202,18 @@ nonisolated enum AudioPostProcessor {
         return db <= -100 ? 0 : pow(10, Float(db) / 20)
     }
 
+    /// - Parameters:
+    ///   - processedWAV: WAV temporaneo con la regione già rifilata e
+    ///     normalizzata (senza click); viene eliminato al termine.
+    ///   - baseName: nome del file principale già salvato (senza estensione).
+    ///   - onOutput: invocata (da un thread qualsiasi) per ogni traccia
+    ///     appena completata, così l'interfaccia la mostra senza aspettare
+    ///     le altre.
+    /// - Returns: gli URL dei file creati.
+    ///
+    /// Se il task viene annullato, la separazione in corso viene terminata,
+    /// il file in scrittura eliminato e la funzione lancia `CancellationError`;
+    /// le tracce già completate restano al loro posto.
     static func run(
         processedWAV: URL,
         folder: URL,
@@ -151,8 +221,9 @@ nonisolated enum AudioPostProcessor {
         format: RecordingFormat,
         addClick: Bool,
         separateDrums: Bool,
-        drumsTrack: Bool
-    ) throws -> [URL] {
+        drumsTrack: Bool,
+        onOutput: @escaping @Sendable (URL) -> Void = { _ in }
+    ) async throws -> [URL] {
         defer { try? FileManager.default.removeItem(at: processedWAV) }
 
         // Separazione stem: serve per le tracce drumless e batteria e, quando
@@ -164,7 +235,7 @@ nonisolated enum AudioPostProcessor {
                 .appendingPathComponent("demucs-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             workDir = dir
-            stems = try DemucsSeparator.separate(source: processedWAV, workDir: dir)
+            stems = try await DemucsSeparator.separate(source: processedWAV, workDir: dir)
         }
         defer { if let workDir { try? FileManager.default.removeItem(at: workDir) } }
 
@@ -173,6 +244,7 @@ nonisolated enum AudioPostProcessor {
         // mentre la registrazione è alla frequenza dell'interfaccia.
         var beatsSeconds: [Double] = []
         if addClick {
+            try Task.checkCancellation()
             let beatSource = stems?.drums ?? processedWAV
             let file = try AVAudioFile(forReading: beatSource)
             let analysis = BeatDetector.analyze(
@@ -183,22 +255,22 @@ nonisolated enum AudioPostProcessor {
         }
 
         var outputs: [URL] = []
+        func export(_ source: URL, suffix: String, click: Bool) throws {
+            let url = try AudioProcessor.exportProcessed(
+                source: source, folder: folder, name: "\(baseName) (\(suffix))",
+                format: format, clickBeatsSeconds: click ? beatsSeconds : []
+            )
+            outputs.append(url)
+            onOutput(url)
+        }
+
         if addClick, !beatsSeconds.isEmpty {
-            outputs.append(try AudioProcessor.exportProcessed(
-                source: processedWAV, folder: folder, name: "\(baseName) (click)",
-                format: format, clickBeatsSeconds: beatsSeconds
-            ))
+            try export(processedWAV, suffix: "click", click: true)
         }
         if separateDrums, let stems {
-            outputs.append(try AudioProcessor.exportProcessed(
-                source: stems.noDrums, folder: folder, name: "\(baseName) (drumless)",
-                format: format, clickBeatsSeconds: []
-            ))
+            try export(stems.noDrums, suffix: "drumless", click: false)
             if addClick, !beatsSeconds.isEmpty {
-                outputs.append(try AudioProcessor.exportProcessed(
-                    source: stems.noDrums, folder: folder, name: "\(baseName) (drumless click)",
-                    format: format, clickBeatsSeconds: beatsSeconds
-                ))
+                try export(stems.noDrums, suffix: "drumless click", click: true)
             }
         }
         if drumsTrack, let stems {
@@ -209,15 +281,9 @@ nonisolated enum AudioPostProcessor {
                     main: stems.drums, background: stems.noDrums, backgroundGain: gain
                 )
                 defer { try? FileManager.default.removeItem(at: mixURL) }
-                outputs.append(try AudioProcessor.exportProcessed(
-                    source: mixURL, folder: folder, name: "\(baseName) (batteria)",
-                    format: format, clickBeatsSeconds: []
-                ))
+                try export(mixURL, suffix: "batteria", click: false)
             } else {
-                outputs.append(try AudioProcessor.exportProcessed(
-                    source: stems.drums, folder: folder, name: "\(baseName) (solo batteria)",
-                    format: format, clickBeatsSeconds: []
-                ))
+                try export(stems.drums, suffix: "solo batteria", click: false)
             }
         }
         return outputs

@@ -111,7 +111,7 @@ final class DemucsInstaller {
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
 
         _ = try await Task.detached(priority: .userInitiated) {
-            try DemucsSeparator.separate(source: silence, workDir: workDir)
+            try await DemucsSeparator.separate(source: silence, workDir: workDir)
         }.value
     }
 

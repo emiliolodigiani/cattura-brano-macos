@@ -299,6 +299,8 @@ nonisolated enum AudioProcessor {
 
     /// Esporta un file già elaborato (nessun trim né guadagno) nel formato
     /// scelto, mixando eventualmente il click sulle battute indicate.
+    /// Se la scrittura si interrompe (errore o annullamento del task), il
+    /// file parziale viene eliminato.
     /// - Parameter clickBeatsSeconds: posizioni delle battute in secondi
     ///   (indipendenti dalla frequenza di campionamento della sorgente).
     static func exportProcessed(
@@ -308,6 +310,7 @@ nonisolated enum AudioProcessor {
         format: RecordingFormat,
         clickBeatsSeconds: [Double]
     ) throws -> URL {
+        try Task.checkCancellation()
         let readFile = try AVAudioFile(forReading: source)
         let processingFormat = readFile.processingFormat
         let sampleRate = processingFormat.sampleRate
@@ -321,34 +324,39 @@ nonisolated enum AudioProcessor {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let outputURL = uniqueURL(folder: folder, name: name, fileExtension: format.fileExtension)
 
-        if format.usesLAME {
-            try exportMP3(
-                readFile: readFile,
-                buffer: buffer,
-                startFrame: 0,
-                framesToWrite: readFile.length,
-                chunkSize: chunkSize,
-                gain: 1,
-                clickBeats: clickBeats,
-                sampleRate: sampleRate,
-                channels: channels,
-                bitrateKbps: format.bitrateKbps,
-                outputURL: outputURL
-            )
-        } else {
-            let outputFile = try AVAudioFile(
-                forWriting: outputURL,
-                settings: format.settings(sampleRate: sampleRate, channels: channels),
-                commonFormat: .pcmFormatFloat32,
-                interleaved: false
-            )
-            try readRegion(
-                readFile: readFile, buffer: buffer, startFrame: 0,
-                framesToWrite: readFile.length, chunkSize: chunkSize,
-                clickBeats: clickBeats, sampleRate: sampleRate
-            ) { chunk in
-                try outputFile.write(from: chunk)
+        do {
+            if format.usesLAME {
+                try exportMP3(
+                    readFile: readFile,
+                    buffer: buffer,
+                    startFrame: 0,
+                    framesToWrite: readFile.length,
+                    chunkSize: chunkSize,
+                    gain: 1,
+                    clickBeats: clickBeats,
+                    sampleRate: sampleRate,
+                    channels: channels,
+                    bitrateKbps: format.bitrateKbps,
+                    outputURL: outputURL
+                )
+            } else {
+                let outputFile = try AVAudioFile(
+                    forWriting: outputURL,
+                    settings: format.settings(sampleRate: sampleRate, channels: channels),
+                    commonFormat: .pcmFormatFloat32,
+                    interleaved: false
+                )
+                try readRegion(
+                    readFile: readFile, buffer: buffer, startFrame: 0,
+                    framesToWrite: readFile.length, chunkSize: chunkSize,
+                    clickBeats: clickBeats, sampleRate: sampleRate
+                ) { chunk in
+                    try outputFile.write(from: chunk)
+                }
             }
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
         }
 
         return outputURL
@@ -361,6 +369,7 @@ nonisolated enum AudioProcessor {
     /// Usato per la traccia "(batteria)": batteria in primo piano e resto
     /// del brano di sottofondo.
     static func mixFiles(main: URL, background: URL, backgroundGain: Float) throws -> URL {
+        try Task.checkCancellation()
         let mainFile = try AVAudioFile(forReading: main)
         let backgroundFile = try AVAudioFile(forReading: background)
         let processingFormat = mainFile.processingFormat
@@ -393,6 +402,10 @@ nonisolated enum AudioProcessor {
         let channels = Int(processingFormat.channelCount)
         var remaining = mainFile.length
         while remaining > 0 {
+            if Task.isCancelled {
+                try? FileManager.default.removeItem(at: outputURL)
+                throw CancellationError()
+            }
             let toRead = AVAudioFrameCount(min(AVAudioFramePosition(chunkSize), remaining))
             try mainFile.read(into: mainBuffer, frameCount: toRead)
             let frames = Int(mainBuffer.frameLength)
@@ -422,6 +435,9 @@ nonisolated enum AudioProcessor {
     /// applica guadagno ed eventuale click e invoca `handle` per ciascun blocco.
     /// `leadInSilence`/`leadOutSilence` premettono/accodano silenzio generato,
     /// per garantire il margine anche quando la registrazione non lo contiene.
+    /// A ogni blocco controlla l'annullamento del task in cui gira (rilevante
+    /// solo per le tracce aggiuntive: il salvataggio principale non è
+    /// annullabile).
     private static func readRegion(
         readFile: AVAudioFile,
         buffer: AVAudioPCMBuffer,
@@ -442,6 +458,7 @@ nonisolated enum AudioProcessor {
         var position = startFrame
         var remaining = framesToWrite
         while remaining > 0 {
+            try Task.checkCancellation()
             let toRead = AVAudioFrameCount(min(AVAudioFramePosition(chunkSize), remaining))
             try readFile.read(into: buffer, frameCount: toRead)
             let framesRead = buffer.frameLength

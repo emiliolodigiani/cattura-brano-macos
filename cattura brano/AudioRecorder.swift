@@ -23,7 +23,14 @@ final class AudioRecorder {
     private(set) var isSaving = false
     /// `true` mentre demucs/click stanno generando le tracce aggiuntive.
     private(set) var isPostProcessing = false
-    /// Tracce aggiuntive generate dopo il salvataggio (click, drumless…).
+    /// `true` da quando l'utente chiede di interrompere la generazione a
+    /// quando questa si è davvero fermata.
+    private(set) var isCancellingPostProcessing = false
+    /// `true` se l'ultima generazione delle tracce aggiuntive è stata
+    /// interrotta dall'utente (le tracce già pronte restano salvate).
+    private(set) var postProcessingInterrupted = false
+    /// Tracce aggiuntive generate dopo il salvataggio (click, drumless…),
+    /// elencate man mano che sono pronte.
     private(set) var extraFiles: [URL] = []
     private(set) var elapsed: TimeInterval = 0
     /// Picchi lineari (0…1) per canale, aggiornati durante la registrazione.
@@ -54,6 +61,9 @@ final class AudioRecorder {
     private var tempURL: URL?
     private var startDate: Date?
     private var meterTask: Task<Void, Never>?
+    /// Generazione delle tracce aggiuntive in corso, annullabile con
+    /// `cancelPostProcessing()`.
+    private var postProcessingTask: Task<[URL], any Error>?
 
     var selectedDevice: AudioInputDevice? {
         devices.first { $0.id == selectedDeviceID }
@@ -142,6 +152,7 @@ final class AudioRecorder {
         errorMessage = nil
         lastSavedURL = nil
         extraFiles = []
+        postProcessingInterrupted = false
 
         guard await requestMicrophoneAccess() else {
             errorMessage = "Permesso al microfono negato. Abilitalo in Impostazioni di Sistema › Privacy e sicurezza › Microfono."
@@ -246,6 +257,7 @@ final class AudioRecorder {
         errorMessage = nil
         lastSavedURL = nil
         extraFiles = []
+        postProcessingInterrupted = false
         let typed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseName = typed.isEmpty ? source.deletingPathExtension().lastPathComponent : typed
         await exportAndPostProcess(
@@ -331,26 +343,54 @@ final class AudioRecorder {
     ) async {
         isPostProcessing = true
         let baseName = savedURL.deletingPathExtension().lastPathComponent
+        let task = Task.detached(priority: .userInitiated) {
+            try await AudioPostProcessor.run(
+                processedWAV: processedWAV,
+                folder: folder,
+                baseName: baseName,
+                format: format,
+                addClick: addClick,
+                separateDrums: separateDrums,
+                drumsTrack: drumsTrack,
+                onOutput: { url in
+                    Task { @MainActor in self.noteExtraFile(url) }
+                }
+            )
+        }
+        postProcessingTask = task
         do {
-            let outputs = try await Task.detached(priority: .userInitiated) {
-                try AudioPostProcessor.run(
-                    processedWAV: processedWAV,
-                    folder: folder,
-                    baseName: baseName,
-                    format: format,
-                    addClick: addClick,
-                    separateDrums: separateDrums,
-                    drumsTrack: drumsTrack
-                )
-            }.value
+            let outputs = try await task.value
             extraFiles = outputs
             if addClick, outputs.isEmpty {
                 errorMessage = "Nessun battito rilevabile: traccia con click non generata."
             }
         } catch {
-            errorMessage = error.localizedDescription
+            // Dopo la richiesta di interruzione qualunque errore è una
+            // conseguenza dello stop (demucs terminato, scrittura troncata):
+            // non va mostrato come guasto.
+            if isCancellingPostProcessing {
+                postProcessingInterrupted = true
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
+        postProcessingTask = nil
+        isCancellingPostProcessing = false
         isPostProcessing = false
+    }
+
+    /// Interrompe la generazione delle tracce aggiuntive: demucs viene
+    /// terminato, il file in scrittura eliminato; le tracce già pronte
+    /// restano salvate. Il salvataggio principale non è coinvolto.
+    func cancelPostProcessing() {
+        guard let postProcessingTask, !isCancellingPostProcessing else { return }
+        isCancellingPostProcessing = true
+        postProcessingTask.cancel()
+    }
+
+    /// Aggiunge all'elenco una traccia aggiuntiva appena completata.
+    private func noteExtraFile(_ url: URL) {
+        if !extraFiles.contains(url) { extraFiles.append(url) }
     }
 
     // MARK: Utilità

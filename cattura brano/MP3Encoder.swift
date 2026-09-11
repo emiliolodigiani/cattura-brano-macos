@@ -23,6 +23,8 @@ nonisolated final class MP3Encoder {
     private let lame: lame_t
     private let handle: FileHandle
     private let channelCount: Int
+    /// `true` dopo `finalize()`: contesto LAME e file già rilasciati.
+    private var closed = false
 
     init(url: URL, sampleRate: Double, channels: AVAudioChannelCount, bitrateKbps: Int) throws {
         guard FileManager.default.createFile(atPath: url.path, contents: nil),
@@ -79,8 +81,18 @@ nonisolated final class MP3Encoder {
         if written > 0 {
             try handle.write(contentsOf: Data(mp3buf[0..<Int(written)]))
         }
+        closed = true
         lame_close(lame)
         try handle.close()
+    }
+
+    /// Se la codifica viene abbandonata prima di `finalize()` (errore o
+    /// annullamento), il contesto LAME e il file vanno comunque rilasciati.
+    deinit {
+        if !closed {
+            lame_close(lame)
+            try? handle.close()
+        }
     }
 }
 
