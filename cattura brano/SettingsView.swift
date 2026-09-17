@@ -11,7 +11,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("demucsModel") private var demucsModel = "htdemucs"
     @AppStorage("demucsShifts") private var demucsShifts = 1
-    @AppStorage("drumsBackgroundDB") private var drumsBackgroundDB = -12
+    @AppStorage("drumsBackgroundDB") private var drumsBackgroundDB = -18
     @AppStorage("silenceThresholdDB") private var silenceThresholdDB = -50
     @AppStorage("silencePaddingTenths") private var silencePaddingTenths = 5
     @AppStorage("parallelGeneration") private var parallelGeneration = false
@@ -66,10 +66,12 @@ struct SettingsView: View {
 
                 Picker(selection: $drumsBackgroundDB) {
                     Text("Nessuno · solo batteria").tag(-100)
-                    Text("−18 dB · appena percettibile").tag(-18)
-                    Text("−12 dB · standard").tag(-12)
-                    Text("−9 dB · presente").tag(-9)
-                    Text("−6 dB · ben udibile").tag(-6)
+                    Text("−30 dB · appena percettibile").tag(-30)
+                    Text("−24 dB · leggero").tag(-24)
+                    Text("−18 dB · standard, bilanciato").tag(-18)
+                    Text("−12 dB · presente").tag(-12)
+                    Text("−9 dB · ben udibile").tag(-9)
+                    Text("−6 dB · quasi alla pari").tag(-6)
                 } label: {
                     Text("Sottofondo della traccia batteria")
                     Text("Volume del resto del brano sotto la batteria nella copia \"(batteria)\". Con \"Nessuno\" la traccia contiene la sola batteria separata.")

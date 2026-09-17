@@ -195,10 +195,10 @@ private nonisolated final class ProcessRunState: @unchecked Sendable {
 nonisolated enum AudioPostProcessor {
 
     /// Volume lineare del resto del brano sotto la batteria nella traccia
-    /// "(batteria)", dalle Impostazioni (in dB, default −12; ≤ −100 = niente
+    /// "(batteria)", dalle Impostazioni (in dB, default −18; ≤ −100 = niente
     /// sottofondo, solo batteria).
     private static var drumsBackgroundGain: Float {
-        let db = UserDefaults.standard.object(forKey: "drumsBackgroundDB") as? Int ?? -12
+        let db = UserDefaults.standard.object(forKey: "drumsBackgroundDB") as? Int ?? -18
         return db <= -100 ? 0 : pow(10, Float(db) / 20)
     }
 
