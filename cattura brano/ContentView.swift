@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var demucsAvailable = DemucsSeparator.isAvailable
 
     @State private var filename = ""
+    @FocusState private var filenameFocused: Bool
     @AppStorage("recordingFormat") private var formatRaw = RecordingFormat.alac.rawValue
     @AppStorage("trimSilence") private var trimSilence = true
     @AppStorage("appendBPM") private var appendBPM = true
@@ -56,7 +57,15 @@ struct ContentView: View {
                 }
 
                 Section("Salvataggio") {
-                    TextField("Nome del brano", text: $filename, prompt: Text("Registrazione"))
+                    // Multiriga: un titolo incollato su due righe si vede per
+                    // intero; all'uscita dal campo diventa "RIGA1 - RIGA2".
+                    TextField("Nome del brano", text: $filename, prompt: Text("Registrazione"), axis: .vertical)
+                        .lineLimit(1...4)
+                        .focused($filenameFocused)
+                        .onSubmit { filenameFocused = false }
+                        .onChange(of: filenameFocused) { _, focused in
+                            if !focused { joinFilenameLines() }
+                        }
                         .help("Puoi modificare il nome anche durante la registrazione.")
 
                     Picker("Formato", selection: $formatRaw) {
@@ -333,7 +342,16 @@ struct ContentView: View {
 
     // MARK: Azioni
 
+    /// Riunisce in una sola riga il nome incollato su più righe. Oltre che
+    /// all'uscita dal campo serve prima di usare il nome: cliccare un
+    /// pulsante non toglie il fuoco al campo di testo.
+    private func joinFilenameLines() {
+        guard filename.contains(where: \.isNewline) else { return }
+        filename = filename.joiningLines
+    }
+
     private func toggleRecording() {
+        joinFilenameLines()
         if recorder.isRecording {
             let folder = folderStore.url
             Task {
@@ -365,6 +383,7 @@ struct ContentView: View {
         panel.message = "Scegli il file audio da elaborare con le opzioni correnti"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        joinFilenameLines()
         let folder = folderStore.url
         Task {
             await recorder.processExistingFile(

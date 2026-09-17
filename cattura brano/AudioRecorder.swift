@@ -456,7 +456,9 @@ final class AudioRecorder {
     }
 
     private func sanitizedFilename(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `joiningLines` rifila anche gli spazi: un nome su più righe non
+        // arriva mai al file system con un a capo dentro.
+        let trimmed = raw.joiningLines
         let cleaned = trimmed.components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>"))
             .joined(separator: "-")
         return cleaned.isEmpty ? "Registrazione" : cleaned
@@ -501,5 +503,17 @@ final class AudioRecorder {
         if let tempURL { try? FileManager.default.removeItem(at: tempURL) }
         tempURL = nil
         isRecording = false
+    }
+}
+
+extension String {
+    /// Il testo riunito su una sola riga: ogni riga rifilata dagli spazi, le
+    /// vuote scartate, le altre unite da " - " (un titolo incollato su due
+    /// righe diventa "RIGA1 - RIGA2"). Su una riga sola equivale a un trim.
+    nonisolated var joiningLines: String {
+        components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " - ")
     }
 }
