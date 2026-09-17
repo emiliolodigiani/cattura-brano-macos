@@ -255,7 +255,7 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .help("Applica le stesse elaborazioni a un file audio esistente")
-                .disabled(recorder.isRecording || recorder.isSaving || recorder.isPostProcessing)
+                .disabled(recorder.isRecording || recorder.isSaving)
             }
         }
         .padding(20)
@@ -265,79 +265,163 @@ struct ContentView: View {
 
     @ViewBuilder
     private var statusSection: some View {
-        if recorder.isSaving {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Elaborazione e salvataggio in corso…")
-                    .foregroundStyle(.secondary)
-            }
-            .font(.callout)
-        }
-
-        if recorder.isPostProcessing {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(
-                    recorder.isCancellingPostProcessing
-                        ? "Interruzione in corso…"
-                        : "Generazione delle tracce aggiuntive… (può richiedere qualche minuto)"
-                )
-                .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Interrompi") {
-                    recorder.cancelPostProcessing()
+        if !recorder.jobs.isEmpty {
+            // Con molti brani accavallati l'elenco scorre, invece di far
+            // crescere la barra fino a coprire le opzioni.
+            if jobRowCount > 8 {
+                ScrollView {
+                    jobList
                 }
-                .controlSize(.small)
-                .keyboardShortcut(.cancelAction)
-                .disabled(recorder.isCancellingPostProcessing)
-                .help("Ferma la generazione delle tracce aggiuntive; il file principale è già salvato e le tracce già pronte restano.")
+                .frame(height: 190)
+            } else {
+                jobList
             }
-            .font(.callout)
-        }
-
-        if let url = recorder.lastSavedURL {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Salvato: \(url.lastPathComponent)")
-                Button("Mostra nel Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting(
-                        [url] + recorder.extraFiles
-                    )
-                }
-                .buttonStyle(.link)
-            }
-            .font(.callout)
-        }
-
-        ForEach(recorder.extraFiles, id: \.self) { file in
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles").foregroundStyle(.blue)
-                Text(file.lastPathComponent)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .font(.callout)
-        }
-
-        if recorder.postProcessingInterrupted {
-            HStack(spacing: 8) {
-                Image(systemName: "stop.circle.fill").foregroundStyle(.secondary)
-                Text("Generazione delle tracce aggiuntive interrotta.")
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
         }
 
         if let message = recorder.errorMessage {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text(message)
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
+            warningRow(message)
         }
+    }
+
+    /// Un blocco per ogni brano in lavorazione o appena concluso.
+    private var jobList: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(recorder.jobs) { job in
+                jobRows(for: job)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Righe occupate dall'elenco dei brani, per decidere quando farlo scorrere.
+    private var jobRowCount: Int {
+        recorder.jobs.reduce(0) { count, job in
+            count + 1 + job.extraFiles.count
+                + (job.isActive && job.phase != .saving ? 1 : 0)
+                + (job.phase == .interrupted ? 1 : 0)
+                + (job.message != nil ? 1 : 0)
+        }
+    }
+
+    /// Generazioni che si possono interrompere adesso. Esc vale come
+    /// "Interrompi" solo quando ce n'è una sola: con più brani si sceglie
+    /// col mouse quale fermare.
+    private var interruptibleJobCount: Int {
+        recorder.jobs.count { $0.phase == .queued || $0.phase == .generating }
+    }
+
+    /// Stato di un brano: file principale, avanzamento delle tracce
+    /// aggiuntive (con il proprio "Interrompi"), tracce pronte, esito.
+    @ViewBuilder
+    private func jobRows(for job: ProcessingJob) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let url = job.savedURL {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text("Salvato: \(url.lastPathComponent)")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Mostra nel Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting(
+                            [url] + job.extraFiles
+                        )
+                    }
+                    .buttonStyle(.link)
+                }
+            } else if job.phase == .saving {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("\(job.name): elaborazione e salvataggio in corso…")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.orange)
+                    Text("Non salvato: \(job.name)")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            // Le righe sotto il nome sono rientrate: con più brani in elenco
+            // si vede a colpo d'occhio a quale appartengono.
+            Group {
+                if job.phase == .queued || job.isGenerating {
+                    generationRow(for: job)
+                }
+
+                ForEach(job.extraFiles, id: \.self) { file in
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkles").foregroundStyle(.blue)
+                        Text(file.lastPathComponent)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+
+                if job.phase == .interrupted {
+                    HStack(spacing: 8) {
+                        Image(systemName: "stop.circle.fill").foregroundStyle(.secondary)
+                        Text("Generazione delle tracce aggiuntive interrotta.")
+                    }
+                    .foregroundStyle(.secondary)
+                }
+
+                if let message = job.message {
+                    warningRow(message)
+                }
+            }
+            .padding(.leading, 22)
+        }
+        .font(.callout)
+    }
+
+    /// Avanzamento delle tracce aggiuntive di un brano, con il comando per
+    /// interrompere soltanto quelle.
+    private func generationRow(for job: ProcessingJob) -> some View {
+        HStack(spacing: 8) {
+            if job.phase == .queued {
+                Image(systemName: "clock").foregroundStyle(.secondary)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+
+            Text(generationStatus(of: job))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button("Interrompi") {
+                recorder.cancel(job)
+            }
+            .controlSize(.small)
+            .keyboardShortcut(interruptibleJobCount == 1 ? .cancelAction : nil)
+            .disabled(job.phase == .cancelling)
+            .help(
+                job.phase == .queued
+                    ? "Toglie dalla coda le tracce aggiuntive di questo brano; il file principale è già salvato."
+                    : "Ferma la generazione delle tracce aggiuntive di questo brano; il file principale è già salvato e le tracce già pronte restano."
+            )
+        }
+    }
+
+    private func generationStatus(of job: ProcessingJob) -> String {
+        switch job.phase {
+        case .queued: "In coda: le tracce aggiuntive partono quando finisce il brano precedente"
+        case .cancelling: "Interruzione in corso…"
+        default: "Generazione delle tracce aggiuntive… (può richiedere qualche minuto)"
+        }
+    }
+
+    private func warningRow(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text(message)
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
     }
 
     // MARK: Azioni

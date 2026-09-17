@@ -20,23 +20,20 @@ final class AudioRecorder {
     var devices: [AudioInputDevice] = []
     var selectedDeviceID: AudioDeviceID?
     private(set) var isRecording = false
-    private(set) var isSaving = false
-    /// `true` mentre demucs/click stanno generando le tracce aggiuntive.
-    private(set) var isPostProcessing = false
-    /// `true` da quando l'utente chiede di interrompere la generazione a
-    /// quando questa si è davvero fermata.
-    private(set) var isCancellingPostProcessing = false
-    /// `true` se l'ultima generazione delle tracce aggiuntive è stata
-    /// interrotta dall'utente (le tracce già pronte restano salvate).
-    private(set) var postProcessingInterrupted = false
-    /// Tracce aggiuntive generate dopo il salvataggio (click, drumless…),
-    /// elencate man mano che sono pronte.
-    private(set) var extraFiles: [URL] = []
+    /// Brani in lavorazione o appena conclusi, dal più vecchio al più recente.
+    /// Quelli conclusi restano in elenco fino alla registrazione successiva.
+    private(set) var jobs: [ProcessingJob] = []
     private(set) var elapsed: TimeInterval = 0
     /// Picchi lineari (0…1) per canale, aggiornati durante la registrazione.
     private(set) var levels: [Float] = []
-    private(set) var lastSavedURL: URL?
+    /// Errori di ingresso e registrazione; quelli di un brano in lavorazione
+    /// stanno nel suo `ProcessingJob`.
     var errorMessage: String?
+
+    /// `true` mentre un brano sta scrivendo il proprio file principale.
+    var isSaving: Bool {
+        jobs.contains { $0.phase == .saving }
+    }
 
     /// Soglia di silenzio lineare usata per il trim, dalle Impostazioni (⌘,).
     /// Il valore è salvato in dBFS (default −50 ≈ 0.00316 lineare).
@@ -61,9 +58,8 @@ final class AudioRecorder {
     private var tempURL: URL?
     private var startDate: Date?
     private var meterTask: Task<Void, Never>?
-    /// Generazione delle tracce aggiuntive in corso, annullabile con
-    /// `cancelPostProcessing()`.
-    private var postProcessingTask: Task<[URL], any Error>?
+    /// Turni per le tracce aggiuntive quando più brani si accavallano.
+    private let generationQueue = GenerationQueue()
 
     var selectedDevice: AudioInputDevice? {
         devices.first { $0.id == selectedDeviceID }
@@ -150,9 +146,7 @@ final class AudioRecorder {
     func startRecording() async {
         guard !isRecording else { return }
         errorMessage = nil
-        lastSavedURL = nil
-        extraFiles = []
-        postProcessingInterrupted = false
+        clearFinishedJobs()
 
         guard await requestMicrophoneAccess() else {
             errorMessage = "Permesso al microfono negato. Abilitalo in Impostazioni di Sistema › Privacy e sicurezza › Microfono."
@@ -253,11 +247,9 @@ final class AudioRecorder {
         drumsTrack: Bool,
         normalize: Bool
     ) async {
-        guard !isRecording, !isSaving, !isPostProcessing else { return }
+        guard !isRecording, !isSaving else { return }
         errorMessage = nil
-        lastSavedURL = nil
-        extraFiles = []
-        postProcessingInterrupted = false
+        clearFinishedJobs()
         let typed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseName = typed.isEmpty ? source.deletingPathExtension().lastPathComponent : typed
         await exportAndPostProcess(
@@ -293,7 +285,8 @@ final class AudioRecorder {
         let padding = silencePadding
         let wantsExtras = addClick || separateDrums || drumsTrack
 
-        isSaving = true
+        let job = ProcessingJob(name: name)
+        jobs.append(job)
         var exportResult: ExportResult?
         do {
             let result = try await Task.detached(priority: .userInitiated) {
@@ -309,30 +302,38 @@ final class AudioRecorder {
                     padding: padding
                 )
             }.value
-            lastSavedURL = result.savedURL
+            job.savedURL = result.savedURL
             exportResult = result
         } catch {
-            errorMessage = "Impossibile salvare il file: \(error.localizedDescription)"
+            job.message = "Impossibile salvare il file: \(error.localizedDescription)"
         }
 
         if deleteSource { try? FileManager.default.removeItem(at: source) }
-        isSaving = false
 
-        if let exportResult, let processedCopy = exportResult.processedCopyURL {
-            await runPostProcessing(
-                processedWAV: processedCopy,
-                savedURL: exportResult.savedURL,
-                folder: outputFolder,
-                format: format,
-                addClick: addClick,
-                separateDrums: separateDrums,
-                drumsTrack: drumsTrack
-            )
+        guard let exportResult else {
+            job.phase = .failed
+            return
         }
+        guard let processedCopy = exportResult.processedCopyURL else {
+            job.phase = .done
+            return
+        }
+        await runPostProcessing(
+            job: job,
+            processedWAV: processedCopy,
+            savedURL: exportResult.savedURL,
+            folder: outputFolder,
+            format: format,
+            addClick: addClick,
+            separateDrums: separateDrums,
+            drumsTrack: drumsTrack
+        )
     }
 
-    /// Genera le tracce aggiuntive (click/drumless) dopo il salvataggio.
+    /// Genera le tracce aggiuntive (click/drumless) dopo il salvataggio,
+    /// aspettando il proprio turno se le elaborazioni vanno una alla volta.
     private func runPostProcessing(
+        job: ProcessingJob,
         processedWAV: URL,
         savedURL: URL,
         folder: URL,
@@ -341,7 +342,18 @@ final class AudioRecorder {
         separateDrums: Bool,
         drumsTrack: Bool
     ) async {
-        isPostProcessing = true
+        await generationQueue.waitForTurn(job)
+        guard job.phase == .generating else {
+            // Interrotto prima di partire: mentre era in coda oppure
+            // nell'istante tra il via libera e la ripartenza (fase già
+            // `.cancelling`, task non ancora creato). Il WAV temporaneo, che
+            // altrimenti elimina AudioPostProcessor, va rimosso qui.
+            try? FileManager.default.removeItem(at: processedWAV)
+            job.phase = .interrupted
+            generationQueue.finish(job)
+            return
+        }
+
         let baseName = savedURL.deletingPathExtension().lastPathComponent
         let task = Task.detached(priority: .userInitiated) {
             try await AudioPostProcessor.run(
@@ -353,44 +365,53 @@ final class AudioRecorder {
                 separateDrums: separateDrums,
                 drumsTrack: drumsTrack,
                 onOutput: { url in
-                    Task { @MainActor in self.noteExtraFile(url) }
+                    Task { @MainActor in job.noteExtraFile(url) }
                 }
             )
         }
-        postProcessingTask = task
+        job.task = task
         do {
             let outputs = try await task.value
-            extraFiles = outputs
+            job.extraFiles = outputs
             if addClick, outputs.isEmpty {
-                errorMessage = "Nessun battito rilevabile: traccia con click non generata."
+                job.message = "Nessun battito rilevabile: traccia con click non generata."
             }
+            job.phase = .done
         } catch {
             // Dopo la richiesta di interruzione qualunque errore è una
             // conseguenza dello stop (demucs terminato, scrittura troncata):
             // non va mostrato come guasto.
-            if isCancellingPostProcessing {
-                postProcessingInterrupted = true
+            if job.phase == .cancelling {
+                job.phase = .interrupted
             } else {
-                errorMessage = error.localizedDescription
+                job.message = error.localizedDescription
+                job.phase = .failed
             }
         }
-        postProcessingTask = nil
-        isCancellingPostProcessing = false
-        isPostProcessing = false
+        job.task = nil
+        generationQueue.finish(job)
     }
 
-    /// Interrompe la generazione delle tracce aggiuntive: demucs viene
-    /// terminato, il file in scrittura eliminato; le tracce già pronte
-    /// restano salvate. Il salvataggio principale non è coinvolto.
-    func cancelPostProcessing() {
-        guard let postProcessingTask, !isCancellingPostProcessing else { return }
-        isCancellingPostProcessing = true
-        postProcessingTask.cancel()
+    /// Interrompe le tracce aggiuntive di `job`, senza toccare gli altri
+    /// brani: se è in coda ne esce subito; se sta generando, demucs viene
+    /// terminato e il file in scrittura eliminato, mentre le tracce già
+    /// pronte restano salvate. Il salvataggio principale non è coinvolto.
+    func cancel(_ job: ProcessingJob) {
+        switch job.phase {
+        case .queued:
+            generationQueue.dequeue(job)
+        case .generating:
+            job.phase = .cancelling
+            job.task?.cancel()
+        case .saving, .cancelling, .done, .interrupted, .failed:
+            break
+        }
     }
 
-    /// Aggiunge all'elenco una traccia aggiuntiva appena completata.
-    private func noteExtraFile(_ url: URL) {
-        if !extraFiles.contains(url) { extraFiles.append(url) }
+    /// All'inizio di un nuovo brano l'elenco si sfoltisce: restano solo i
+    /// brani che hanno ancora lavoro da fare.
+    private func clearFinishedJobs() {
+        jobs.removeAll { !$0.isActive }
     }
 
     // MARK: Utilità

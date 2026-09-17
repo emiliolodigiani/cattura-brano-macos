@@ -2,7 +2,8 @@
 //  SettingsView.swift
 //  cattura brano
 //
-//  Impostazioni dell'app (⌘,): parametri di qualità della separazione stem.
+//  Impostazioni dell'app (⌘,): taglio del silenzio, qualità della separazione
+//  stem e gestione delle elaborazioni accavallate.
 //
 
 import SwiftUI
@@ -13,6 +14,7 @@ struct SettingsView: View {
     @AppStorage("drumsBackgroundDB") private var drumsBackgroundDB = -12
     @AppStorage("silenceThresholdDB") private var silenceThresholdDB = -50
     @AppStorage("silencePaddingTenths") private var silencePaddingTenths = 5
+    @AppStorage("parallelGeneration") private var parallelGeneration = false
 
     var body: some View {
         Form {
@@ -71,6 +73,16 @@ struct SettingsView: View {
                 } label: {
                     Text("Sottofondo della traccia batteria")
                     Text("Volume del resto del brano sotto la batteria nella copia \"(batteria)\". Con \"Nessuno\" la traccia contiene la sola batteria separata.")
+                }
+            }
+
+            Section("Tracce aggiuntive") {
+                Picker(selection: $parallelGeneration) {
+                    Text("Uno alla volta · standard").tag(false)
+                    Text("Tutti insieme").tag(true)
+                } label: {
+                    Text("Brani in elaborazione")
+                    Text("Cosa succede quando salvi un brano mentre il precedente sta ancora generando click e stem. Uno alla volta: il nuovo aspetta in coda e il primo è pronto prima. Tutti insieme: partono subito, ma si rallentano a vicenda e demucs occupa più memoria. In entrambi i casi ogni brano si interrompe da solo.")
                 }
             }
 
